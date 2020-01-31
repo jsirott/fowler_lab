@@ -238,6 +238,7 @@ class CellClassifier(object):
         meta['ncells'] = 0
         if len(results) > 0:
             meta['ncells'] = len(results[0]['class_ids'])
+        logger.debug(f"{meta['ncells']} cells detected")
         logger.debug(f"metadata from segmentation {meta}")
         if self.viz: self.viz.visualize_cell_boundaries(np.copy(results[0]['rois']).astype(np.int32), molded_image, title='Segmented cell boundaries')
         return {'model_data':results, 'molded_image':molded_image, 'meta':meta}
