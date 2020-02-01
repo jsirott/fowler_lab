@@ -92,7 +92,6 @@ class VisualizeClassifications(VisualizeBase):
 
 class VisualizeSegAndClass(VisualizeBase):
     def visualize_cell_boundaries(self, bboxes, image, title='',alpha=0.2,filter=None):
-        if not self.config['visualize']: return
         nimage = img_as_float(image[..., 0], force_copy=True)
         nimage = np.stack([nimage] * 4, axis=2)
         nimage[:,:,3] = 1
@@ -107,7 +106,6 @@ class VisualizeSegAndClass(VisualizeBase):
         self.visualize_image(nimage, title)
 
     def visualize_image(self, image, title,cmap=None):
-        if not self.config['visualize']: return
         super().visualize_image(image,title,cmap=cmap)
 
 class CellClassifier(object):
@@ -117,8 +115,11 @@ class CellClassifier(object):
         self.config = config
         self.model = self.inference_config = None
         self.viz = None
+        self.vizseg = None
         if self.config['visualize']:
             self.viz = VisualizeSegAndClass(self.config,grid=(2,2))
+        elif self.config['visualize_segs']:
+            self.vizseg = VisualizeSegAndClass(self.config,grid=(2,1))
         if self.config['debug']:
             logger.setLevel(logging.DEBUG)
 
@@ -180,6 +181,7 @@ class CellClassifier(object):
         full_path = str(Path(img_name).absolute())
         img = self.preprocess(img)
         if self.viz: self.viz.visualize_image(img, 'Dendra2 image (segment)')
+        if self.vizseg: self.vizseg.visualize_image(img, 'Dendra2 image (segment)')
         image_id = random.randint(0, 1<<31)
 
 
@@ -241,6 +243,7 @@ class CellClassifier(object):
         logger.debug(f"{meta['ncells']} cells detected")
         logger.debug(f"metadata from segmentation {meta}")
         if self.viz: self.viz.visualize_cell_boundaries(np.copy(results[0]['rois']).astype(np.int32), molded_image, title='Segmented cell boundaries')
+        if self.vizseg: self.vizseg.visualize_cell_boundaries(np.copy(results[0]['rois']).astype(np.int32), molded_image, title='Segmented cell boundaries')
         return {'model_data':results, 'molded_image':molded_image, 'meta':meta}
 
 
@@ -444,8 +447,10 @@ if __name__ == "__main__":
     parser.add_argument('--max_images', help="Maximum number of images to process", type=int, default=-1)
     parser.add_argument('--tf_gpu_fraction', help="Limit tensorflow memory allocation to this fraction [0-1)", type=validate_range, default=None)
     parser.add_argument('--debug', help="Print debugging statements", action="store_true")
-    parser.add_argument('--visualize', help="Visualize results", action="store_true")
-    parser.add_argument('--visualize_classifications', help="Visualize classification results", action="store_true")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--visualize', help="Visualize results", action="store_true")
+    group.add_argument('--visualize_classifications', help="Visualize classification results", action="store_true")
+    group.add_argument('--visualize_segs', help="Visualize segmentation results", action="store_true")
     args = parser.parse_args()
     if args.action == 'classify' and args.seg_dir is None:
         parser.error("--seg_dir argument is missing")
@@ -473,6 +478,7 @@ if __name__ == "__main__":
         'boundary_size':3,
         'crop_size':64,
         'visualize':args.visualize,
+        'visualize_segs' : args.visualize_segs,
         'visualize_classifications' : args.visualize_classifications,
         'binning': (2,2),
         'debug': args.debug
