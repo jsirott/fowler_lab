@@ -66,7 +66,8 @@ if __name__ == '__main__':
         'visualize': False,
         'visualize_classifications': False,
         'binning': (2, 2),
-        'debug': args.debug
+        'debug': args.debug,
+        'tf_gpu_fraction': 0.75
     }
     logger.info("Configuration:")
     logger.info(pprint.pformat(config))
@@ -88,7 +89,7 @@ if __name__ == '__main__':
             client.connect(hostname, port)
             logger.info("Running non remote analysis")
 
-            analysis = client.run('test/test_segment.tif', 'test/test_classify.tif', tf_gpu_fraction=.75)
+            analysis = client.run('test/test_segment.tif', 'test/test_classify.tif')
             # with open('test/test.pkl',"wb") as f:
             #     pickle.dump(analysis,f)
             p.terminate()

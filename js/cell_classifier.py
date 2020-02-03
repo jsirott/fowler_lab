@@ -59,15 +59,20 @@ class VisualizeBase(object):
         self.grid = grid
         self.figsize = figsize
         self.setup_plots()
+        self.texts = []
 
     def setup_plots(self):
-        self.fig, self.ax = plt.subplots(*self.grid, sharex='col', sharey='row', figsize=self.figsize,num=1, clear=True)
+        self.fig, self.ax = plt.subplots(*self.grid, figsize=self.figsize,num=1, clear=True)
+        self.fig.set_tight_layout(True)
         self.axiter = iter(self.ax.ravel())
         self.nax = next(self.axiter)
 
     def visualize_image(self, image, title,cmap=None):
         self.nax.set_title(title)
         self.nax.imshow(image,cmap=cmap)
+        for args,kwargs in self.texts:
+            self.nax.text(*args,**kwargs)
+        self.texts = []
         try:
             self.nax = next(self.axiter)
         except StopIteration:
@@ -75,6 +80,10 @@ class VisualizeBase(object):
             #plt.pause(0.5)
             plt.show()
             self.setup_plots()
+
+    def text(self,*args, **kwargs):
+        self.texts.append((args,kwargs))
+
 
 class VisualizeClassifications(VisualizeBase):
 
@@ -91,17 +100,29 @@ class VisualizeClassifications(VisualizeBase):
                 self.visualize_image(img,title,cmap='gray')
 
 class VisualizeSegAndClass(VisualizeBase):
-    def visualize_cell_boundaries(self, bboxes, image, title='',alpha=0.2,filter=None):
+
+    def visualize_cell_boundaries(self, results, image, title='',alpha=0.2,filter=None):
+        bboxes = results[0]['rois'].astype(np.int32)
+        masks = results[0]['masks']
+        scores = results[0]['scores']
+
         nimage = img_as_float(image[..., 0], force_copy=True)
         nimage = np.stack([nimage] * 4, axis=2)
         nimage[:,:,3] = 1
 
         mask = np.zeros(nimage.shape)
-        for bbox in bboxes:
+        for i,bbox in enumerate(bboxes):
             bbox = np.maximum(0, bbox)
-            rr, cc = rectangle(bbox[[0, 1]], bbox[[2, 3]] - 1)
-            mask[rr, cc, 0] = 1 # red
-            mask[rr,cc,3] = alpha
+            # Bounding box
+            rr, cc = rectangle_perimeter(bbox[[0, 1]], bbox[[2, 3]] - 2)
+            mask[rr, cc, i%3] = 1 # Cycle through RGB
+            mask[rr,cc,3] = 1
+
+            # Nucleus mask
+            mcoords = np.where(masks[i])
+            mask[mcoords[0], mcoords[1], i%3] = 1
+            mask[mcoords[0], mcoords[1] ,3] = alpha
+            self.text(*bbox[[1,0]],f"{scores[i]:.3f}",color='w', size=7, backgroundcolor="none")
         nimage = mask[...,0:3]*mask[...,3,None] + nimage[...,0:3]*(1-mask[...,3,None])
         self.visualize_image(nimage, title)
 
@@ -119,7 +140,7 @@ class CellClassifier(object):
         if self.config['visualize']:
             self.viz = VisualizeSegAndClass(self.config,grid=(2,2))
         elif self.config['visualize_segs']:
-            self.vizseg = VisualizeSegAndClass(self.config,grid=(2,1))
+            self.vizseg = VisualizeSegAndClass(self.config,grid=(1,2),figsize=(18,9))
         if self.config['debug']:
             logger.setLevel(logging.DEBUG)
 
@@ -168,7 +189,7 @@ class CellClassifier(object):
         img_norm = np.stack([img, img, img], axis=-1)
         return img_norm
 
-    def segment_nucleus(self,img_name,tf_gpu_fraction=None):
+    def segment_nucleus(self,img_name):
         '''
         Segment nuclei using the 3rd place segmenting algorithm from the Kaggle Data Science Bowl 2018
         :param img_name: File name of the microscope image to process
@@ -221,6 +242,7 @@ class CellClassifier(object):
             self.model = modellib.MaskRCNN(mode="inference", config=self.inference_config, model_dir=self.config['root_dir'])
             # Limit tf memory fraction if specified
             # Has to be located before loading weights or all sorts of chaos erupts
+            tf_gpu_fraction = self.config['tf_gpu_fraction']
             if tf_gpu_fraction is not None:
                 from keras.backend.tensorflow_backend import set_session, get_session
                 import tensorflow as tf
@@ -242,13 +264,13 @@ class CellClassifier(object):
             meta['ncells'] = len(results[0]['class_ids'])
         logger.debug(f"{meta['ncells']} cells detected")
         logger.debug(f"metadata from segmentation {meta}")
-        if self.viz: self.viz.visualize_cell_boundaries(np.copy(results[0]['rois']).astype(np.int32), molded_image, title='Segmented cell boundaries')
-        if self.vizseg: self.vizseg.visualize_cell_boundaries(np.copy(results[0]['rois']).astype(np.int32), molded_image, title='Segmented cell boundaries')
+        if self.viz: self.viz.visualize_cell_boundaries(results, molded_image, title='Segmented cell boundaries')
+        if self.vizseg: self.vizseg.visualize_cell_boundaries(results, molded_image, title='Segmented cell boundaries')
         return {'model_data':results, 'molded_image':molded_image, 'meta':meta}
 
 
     @pickler
-    def run(self, simg, cimg, tf_gpu_fraction=None):
+    def run(self, simg, cimg):
         '''
         Segment and classify a multichannel image
         :param simg: Image to use for segmentation
@@ -257,7 +279,7 @@ class CellClassifier(object):
         default TF memory allocation
         :return:
         '''
-        segmented = self.segment_nucleus(simg,tf_gpu_fraction=tf_gpu_fraction)
+        segmented = self.segment_nucleus(simg)
         rval = self.classify_image(cimg,segmented)
         return rval
 
@@ -481,7 +503,8 @@ if __name__ == "__main__":
         'visualize_segs' : args.visualize_segs,
         'visualize_classifications' : args.visualize_classifications,
         'binning': (2,2),
-        'debug': args.debug
+        'debug': args.debug,
+        'tf_gpu_fraction': args.tf_gpu_fraction
     }
     logger.info("Configuration:")
     logger.info(pprint.pformat(config))
@@ -499,7 +522,7 @@ if __name__ == "__main__":
             files = tqdm.tqdm(files)
             for i,f in enumerate(files):
                 files.set_description(f"Segmenting {f}")
-                results = mon.segment_nucleus(f,tf_gpu_fraction=args.tf_gpu_fraction)
+                results = mon.segment_nucleus(f)
                 if outfiles is not None:
                     with open(outfiles[i],"wb") as f:
                        pickle.dump(results,f)
@@ -523,7 +546,7 @@ if __name__ == "__main__":
             assert len(cfiles) == len(sfiles)
             sfiles = tqdm.tqdm(sfiles)
             for i,sfile in enumerate(sfiles):
-                results = mon.run(sfile, cfiles[i], tf_gpu_fraction=args.tf_gpu_fraction)
+                results = mon.run(sfile, cfiles[i])
                 # with (open("/tmp/bad.pkl","wb")) as f:
                 #     pickle.dump(results,f)
         else:
