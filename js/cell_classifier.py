@@ -74,10 +74,9 @@ class VisualizeBase(object):
         self.axiter = iter(self.ax.ravel())
         self.nax = next(self.axiter)
 
-    def visualize_image(self, image, title,cmap=None, show_anchors=False):
+    def visualize_image(self, image, title,cmap=None):
         self.nax.set_title(title)
         self.nax.imshow(image,cmap=cmap)
-        if show_anchors: self.visualize_anchors(image)
         for args,kwargs in self.texts:
             self.nax.text(*args,**kwargs)
         self.texts = []
@@ -88,56 +87,6 @@ class VisualizeBase(object):
             #plt.pause(0.5)
             plt.show()
             self.setup_plots()
-
-    def visualize_anchors(self, image):
-        # Generate Anchors
-        config = self.classifier.inference_config
-        backbone_shapes = modellib.compute_backbone_shapes(config, image.shape)
-        anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
-                                                 config.RPN_ANCHOR_RATIOS,
-                                                 backbone_shapes,
-                                                 config.BACKBONE_STRIDES,
-                                                 config.RPN_ANCHOR_STRIDE)
-
-        # Print summary of anchors
-        num_levels = len(backbone_shapes)
-        anchors_per_cell = len(config.RPN_ANCHOR_RATIOS)
-        logger.debug("Count: ", anchors.shape[0])
-        logger.debug("Scales: ", config.RPN_ANCHOR_SCALES)
-        logger.debug("ratios: ", config.RPN_ANCHOR_RATIOS)
-        logger.debug("Anchors per Cell: ", anchors_per_cell)
-        logger.debug("Levels: ", num_levels)
-        anchors_per_level = []
-        for l in range(num_levels):
-            num_cells = backbone_shapes[l][0] * backbone_shapes[l][1]
-            anchors_per_level.append(anchors_per_cell * num_cells // config.RPN_ANCHOR_STRIDE ** 2)
-            logger.debug("Anchors in Level {}: {}".format(l, anchors_per_level[l]))
-
-        # Display
-        fig,ax = self.fig, self.nax
-        levels = len(backbone_shapes)
-
-        for level in range(levels):
-            colors = visualize.random_colors(levels)
-            # Compute the index of the anchors at the center of the image
-            level_start = sum(anchors_per_level[:level])  # sum of anchors of previous levels
-            level_anchors = anchors[level_start:level_start + anchors_per_level[level]]
-            logger.debug("Level {}. Anchors: {:6}  Feature map Shape: {}".format(level, level_anchors.shape[0],
-                                                                          backbone_shapes[level]))
-            center_cell = backbone_shapes[level] // 2
-            center_cell_index = (center_cell[0] * backbone_shapes[level][1] + center_cell[1])
-            level_center = center_cell_index * anchors_per_cell
-            center_anchor = anchors_per_cell * (
-                    (center_cell[0] * backbone_shapes[level][1] / config.RPN_ANCHOR_STRIDE ** 2) \
-                    + center_cell[1] / config.RPN_ANCHOR_STRIDE)
-            level_center = int(center_anchor)
-
-            # Draw anchors. Brightness show the order in the array, dark to bright.
-            for i, rect in enumerate(level_anchors[level_center:level_center + anchors_per_cell]):
-                y1, x1, y2, x2 = rect
-                p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, facecolor='none',
-                                      edgecolor=(i + 1) * np.array(colors[level]) / anchors_per_cell)
-                ax.add_patch(p)
 
     def text(self,*args, **kwargs):
         self.texts.append((args,kwargs))
@@ -185,6 +134,30 @@ class VisualizeSegAndClass(VisualizeBase):
         nimage = mask[...,0:3]*mask[...,3,None] + nimage[...,0:3]*(1-mask[...,3,None])
         self.visualize_image(nimage, title)
 
+class MaskRCNNInitializer(object):
+    def __init__(self,classifier):
+        self.classifier = classifier
+        self.model = None
+
+    def __call__(self, *args, **kwargs):
+        if self.model is None:
+            from mrcnn import utils
+            import mrcnn.model_inference as modellib
+            logger.info(f"Loading TF model in dir {self.classifier.config['root_dir']}")
+            self.model = modellib.MaskRCNN(mode="inference", config=self.classifier.inference_config, model_dir=self.classifier.config['root_dir'])
+            # Limit tf memory fraction if specified
+            # Has to be located before loading weights or all sorts of chaos erupts
+            tf_gpu_fraction = self.classifier.config['tf_gpu_fraction']
+            if tf_gpu_fraction is not None:
+                from keras.backend.tensorflow_backend import set_session, get_session
+                import tensorflow as tf
+                sess = tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=tf_gpu_fraction),allow_soft_placement=True))
+                set_session(sess)
+            logger.info(f"Loading TF model weights from {self.classifier.config['model_path']}")
+            self.model.load_weights(self.classifier.config['model_path'], by_name=True)
+        logger.info(f"TF model loaded")
+        return self.model
+
 
 
 class CellClassifier(object):
@@ -194,7 +167,7 @@ class CellClassifier(object):
         self.config = config
         self.inference_config = my_inference.BowlConfig()
         self.inference_config.display()
-        self.model = None
+        self.model = MaskRCNNInitializer(self)
         self.viz = None
         self.vizseg = None
         if self.config['visualize']:
@@ -267,9 +240,7 @@ class CellClassifier(object):
 
 
 
-        from mrcnn import utils
         # Lazily initialize segmentation model
-        import mrcnn.model_inference as modellib
         inference_config = self.inference_config
 
         # Mold image
@@ -293,21 +264,7 @@ class CellClassifier(object):
         meta['preprocess_time'] = t0.get_time()
 
         # Load model if not already loaded
-        if self.model is None:
-            logger.info(f"Loading TF model in dir {self.config['root_dir']}")
-            self.model = modellib.MaskRCNN(mode="inference", config=self.inference_config, model_dir=self.config['root_dir'])
-            # Limit tf memory fraction if specified
-            # Has to be located before loading weights or all sorts of chaos erupts
-            tf_gpu_fraction = self.config['tf_gpu_fraction']
-            if tf_gpu_fraction is not None:
-                from keras.backend.tensorflow_backend import set_session, get_session
-                import tensorflow as tf
-                sess = tf.Session(config=tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=tf_gpu_fraction),allow_soft_placement=True))
-                set_session(sess)
-            logger.info(f"Loading TF model weights from {self.config['model_path']}")
-            self.model.load_weights(self.config['model_path'], by_name=True)
-        logger.info(f"TF model loaded")
-        model = self.model
+        model = self.model()
 
         t0 = TimeIt()
         image_metas = modellib.compose_image_meta(image_id, img.shape, molded_image.shape, window,

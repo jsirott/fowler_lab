@@ -21,10 +21,9 @@ def create_tophat(indir,outdir,pattern=None):
         print(i,nfile)
         img = skimage.io.imread(i,as_gray=True).astype(np.float32)
         th = white_tophat(img, square(10))
-        #th = ndi.grey_erosion(th,structure=square(3))
-        #th = th - np.min(th)
-        nimage = np.moveaxis(np.stack((img, th, np.zeros(img.shape))), 0, -1)
-        visualize_tophat(img,th,nimage)
+        #nimage = np.moveaxis(np.stack((img, th, np.zeros(img.shape))), 0, -1)
+        nimage = np.moveaxis(np.stack((th, th, th)), 0, -1)
+        #visualize_tophat(img,th,nimage)
         skimage.io.imsave(nfile,(nimage*255).astype(np.uint8))
 
 
@@ -39,4 +38,4 @@ def visualize_tophat(img,th,combined):
 
 
 if __name__ == '__main__':
-    create_tophat('../classifier-images/imageset_divided','../classifier-images/imageset_divided_tophat',pattern='**/noise/*.png')
+    create_tophat('../classifier-images/imageset_divided','../classifier-images/imageset_divided_tophat',pattern='**/*.png')
