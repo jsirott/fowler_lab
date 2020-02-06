@@ -23,6 +23,13 @@ import logging
 import pickle
 import torch
 import pprint
+from mrcnn import model as modellib
+from mrcnn import utils
+from mrcnn import visualize
+from nucleus import nucleus
+import matplotlib.patches as patches
+from mrcnn import my_inference
+
 from decorators import pickler
 
 #TODO - don't die on RuntimeError from pytorch
@@ -54,8 +61,8 @@ class TimeIt(object):
 
 
 class VisualizeBase(object):
-    def __init__(self,config,grid=(2,2),figsize=(12,12)):
-        self.config = config
+    def __init__(self,classifier,grid=(2,2),figsize=(12,12)):
+        self.classifier = classifier
         self.grid = grid
         self.figsize = figsize
         self.setup_plots()
@@ -67,9 +74,10 @@ class VisualizeBase(object):
         self.axiter = iter(self.ax.ravel())
         self.nax = next(self.axiter)
 
-    def visualize_image(self, image, title,cmap=None):
+    def visualize_image(self, image, title,cmap=None, show_anchors=False):
         self.nax.set_title(title)
         self.nax.imshow(image,cmap=cmap)
+        if show_anchors: self.visualize_anchors(image)
         for args,kwargs in self.texts:
             self.nax.text(*args,**kwargs)
         self.texts = []
@@ -81,6 +89,56 @@ class VisualizeBase(object):
             plt.show()
             self.setup_plots()
 
+    def visualize_anchors(self, image):
+        # Generate Anchors
+        config = self.classifier.inference_config
+        backbone_shapes = modellib.compute_backbone_shapes(config, image.shape)
+        anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
+                                                 config.RPN_ANCHOR_RATIOS,
+                                                 backbone_shapes,
+                                                 config.BACKBONE_STRIDES,
+                                                 config.RPN_ANCHOR_STRIDE)
+
+        # Print summary of anchors
+        num_levels = len(backbone_shapes)
+        anchors_per_cell = len(config.RPN_ANCHOR_RATIOS)
+        logger.debug("Count: ", anchors.shape[0])
+        logger.debug("Scales: ", config.RPN_ANCHOR_SCALES)
+        logger.debug("ratios: ", config.RPN_ANCHOR_RATIOS)
+        logger.debug("Anchors per Cell: ", anchors_per_cell)
+        logger.debug("Levels: ", num_levels)
+        anchors_per_level = []
+        for l in range(num_levels):
+            num_cells = backbone_shapes[l][0] * backbone_shapes[l][1]
+            anchors_per_level.append(anchors_per_cell * num_cells // config.RPN_ANCHOR_STRIDE ** 2)
+            logger.debug("Anchors in Level {}: {}".format(l, anchors_per_level[l]))
+
+        # Display
+        fig,ax = self.fig, self.nax
+        levels = len(backbone_shapes)
+
+        for level in range(levels):
+            colors = visualize.random_colors(levels)
+            # Compute the index of the anchors at the center of the image
+            level_start = sum(anchors_per_level[:level])  # sum of anchors of previous levels
+            level_anchors = anchors[level_start:level_start + anchors_per_level[level]]
+            logger.debug("Level {}. Anchors: {:6}  Feature map Shape: {}".format(level, level_anchors.shape[0],
+                                                                          backbone_shapes[level]))
+            center_cell = backbone_shapes[level] // 2
+            center_cell_index = (center_cell[0] * backbone_shapes[level][1] + center_cell[1])
+            level_center = center_cell_index * anchors_per_cell
+            center_anchor = anchors_per_cell * (
+                    (center_cell[0] * backbone_shapes[level][1] / config.RPN_ANCHOR_STRIDE ** 2) \
+                    + center_cell[1] / config.RPN_ANCHOR_STRIDE)
+            level_center = int(center_anchor)
+
+            # Draw anchors. Brightness show the order in the array, dark to bright.
+            for i, rect in enumerate(level_anchors[level_center:level_center + anchors_per_cell]):
+                y1, x1, y2, x2 = rect
+                p = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, linewidth=2, facecolor='none',
+                                      edgecolor=(i + 1) * np.array(colors[level]) / anchors_per_cell)
+                ax.add_patch(p)
+
     def text(self,*args, **kwargs):
         self.texts.append((args,kwargs))
 
@@ -88,7 +146,7 @@ class VisualizeBase(object):
 class VisualizeClassifications(VisualizeBase):
 
     def visualize(self, predictions,crops,n_cells):
-        if not self.config['visualize_classifications']: return
+        if not self.classifier.config['visualize_classifications']: return
         d = {'edge': 1, 'noise': 2, 'puncta': 3, 'wt': 4}
         d = {y: x for x, y in d.items()}
         gridprod = np.product(self.grid)
@@ -99,9 +157,10 @@ class VisualizeClassifications(VisualizeBase):
                 img = crops[k + i].numpy()[0]
                 self.visualize_image(img,title,cmap='gray')
 
+
 class VisualizeSegAndClass(VisualizeBase):
 
-    def visualize_cell_boundaries(self, results, image, title='',alpha=0.2,filter=None):
+    def visualize_cell_boundaries(self, results, image, title='',alpha=0.2):
         bboxes = results[0]['rois'].astype(np.int32)
         masks = results[0]['masks']
         scores = results[0]['scores']
@@ -126,21 +185,22 @@ class VisualizeSegAndClass(VisualizeBase):
         nimage = mask[...,0:3]*mask[...,3,None] + nimage[...,0:3]*(1-mask[...,3,None])
         self.visualize_image(nimage, title)
 
-    def visualize_image(self, image, title,cmap=None):
-        super().visualize_image(image,title,cmap=cmap)
+
 
 class CellClassifier(object):
     model = None
 
     def __init__(self,config):
         self.config = config
-        self.model = self.inference_config = None
+        self.inference_config = my_inference.BowlConfig()
+        self.inference_config.display()
+        self.model = None
         self.viz = None
         self.vizseg = None
         if self.config['visualize']:
-            self.viz = VisualizeSegAndClass(self.config,grid=(2,2))
+            self.viz = VisualizeSegAndClass(self,grid=(2,2))
         elif self.config['visualize_segs']:
-            self.vizseg = VisualizeSegAndClass(self.config,grid=(1,2),figsize=(18,9))
+            self.vizseg = VisualizeSegAndClass(self,grid=(1,2),figsize=(18,9))
         if self.config['debug']:
             logger.setLevel(logging.DEBUG)
 
@@ -198,7 +258,7 @@ class CellClassifier(object):
                  'molded_image' is the submitted image after processing, and meta is metadata.
         '''
         t0 = TimeIt()
-        img = skimage.io.imread(img_name)
+        img = skimage.io.imread(img_name,as_gray=True)
         full_path = str(Path(img_name).absolute())
         img = self.preprocess(img)
         if self.viz: self.viz.visualize_image(img, 'Dendra2 image (segment)')
@@ -210,10 +270,6 @@ class CellClassifier(object):
         from mrcnn import utils
         # Lazily initialize segmentation model
         import mrcnn.model_inference as modellib
-        from mrcnn import my_inference
-        if self.inference_config is None:
-            self.inference_config = my_inference.BowlConfig()
-            self.inference_config.display()
         inference_config = self.inference_config
 
         # Mold image
@@ -301,9 +357,6 @@ class CellClassifier(object):
 
         # Mold image
         from mrcnn import utils
-        from mrcnn import my_inference
-        if self.inference_config is None:
-            self.inference_config = my_inference.BowlConfig()
         inference_config = self.inference_config
         molded_image, window, scale, padding, crop = utils.resize_image(img,
                                                                         min_dim=inference_config.IMAGE_MIN_DIM,
