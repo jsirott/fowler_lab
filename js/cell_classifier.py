@@ -29,6 +29,7 @@ from mrcnn import visualize
 from nucleus import nucleus
 import matplotlib.patches as patches
 from mrcnn import my_inference
+from scipy.sparse.bsr import bsr_matrix
 
 from decorators import pickler
 
@@ -84,8 +85,7 @@ class VisualizeBase(object):
             self.nax = next(self.axiter)
         except StopIteration:
             plt.draw()
-            #plt.pause(0.5)
-            plt.show()
+            plt.waitforbuttonpress(60 * 30)
             self.setup_plots()
 
     def text(self,*args, **kwargs):
@@ -206,7 +206,7 @@ class CellClassifier(object):
         return CellClassifier.normalize_image(img)
 
     @staticmethod
-    def normalize_image(img):
+    def normalize_image(img, as_gray=False):
 
         # Normalize images
         percentile = 99.9
@@ -218,9 +218,9 @@ class CellClassifier(object):
 
         img = np.minimum(1,(img - low) / (high - low))   # (0->1)
 
-        # Make a RGBA-channel color image
-        img_norm = np.stack([img, img, img], axis=-1)
-        return img_norm
+        # Make a RGB-channel color image
+        if not as_gray: img = np.stack([img, img, img], axis=-1)
+        return img
 
     def segment_nucleus(self,img_name):
         '''
@@ -323,6 +323,7 @@ class CellClassifier(object):
 
 
         results = segmented['model_data']
+
         img_meta = segmented['meta']
         padding = img_meta['padding']
         n_cells = len(results[0]['class_ids'])
@@ -533,6 +534,9 @@ if __name__ == "__main__":
             for i,f in enumerate(files):
                 files.set_description(f"Segmenting {f}")
                 results = mon.segment_nucleus(f)
+                # Use sparse matrix for masks
+                masks = results['model_data'][0]['masks']
+                results['model_data'][0]['masks'] = [bsr_matrix(m) for m in masks]
                 if outfiles is not None:
                     with open(outfiles[i],"wb") as f:
                        pickle.dump(results,f)
