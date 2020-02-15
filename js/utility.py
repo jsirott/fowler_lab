@@ -7,11 +7,21 @@ from skimage.morphology import white_tophat,disk,square
 import numpy as np
 from cell_classifier import CellClassifier
 import pandas as pd
+import logging
+# Setup logging
+from tqdm import tqdm
+import re
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 pd.set_option('max_colwidth',500)
 pd.set_option('max_columns', 100)
 pd.set_option('display.width',1000)
 
-def get_metadata(dir,segment_pattern,classify_pattern,expts=None):
+def get_metadata(dir,segment_pattern,classify_pattern,expts=None,save=True):
+    if not Path(dir).is_dir():
+        raise Exception(f"{dir} is not a directory")
     segment_images = list(Path(dir).absolute().glob(segment_pattern))
     classify_images = list(Path(dir).absolute().glob(classify_pattern))
     assert len(segment_images) == len(classify_images)
@@ -22,43 +32,42 @@ def get_metadata(dir,segment_pattern,classify_pattern,expts=None):
               'segment_base': [p.name for p in segment_images],
               'classify_base': [p.name for p in classify_images],
               })
-    print(metadata['segment_base'].head())
     metadata = metadata.join(metadata['segment_base'].str.extract(r'.*?_(?P<image_metadata_well>[A-Z][0-9][0-9])_s(?P<image_metdata_site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
     if expts:
         for k,v in expts.items():
             metadata[k] = metadata['image_metadata_well'].apply(v)
-    return metadata.set_index('image_number')
+    metadata = metadata.set_index('image_number')
+    if save: metadata.to_csv(Path(dir).joinpath('metadata.csv'))
+    return metadata
 
-def create_tophat(indir,outdir,pattern=None,visualize=False,normalize=False):
-    pattern = '**/*.png' if pattern is None else pattern
+def create_tophat(indir, outdir, segment_pattern=None, visualize=False, normalize=False):
+    segment_pattern = '**/*.png' if segment_pattern is None else segment_pattern
     indir = Path(indir).resolve()
     outdir = Path(outdir).resolve()
     if not indir.is_dir():
         raise Exception(f"{indir} is not a directory")
     outdir.mkdir(parents=True,exist_ok=True)
-    fig, ax = plt.subplots(1, 3, figsize=(24,12))
-    for i in indir.glob(pattern):
-        nfile = outdir.joinpath(*i.parts[-2:])
+    fig, ax = plt.subplots(1, 2, figsize=(12,12))
+    files = tqdm(list(indir.glob(segment_pattern)))
+
+    for i in files:
+        outfile = re.sub(r'w\d.TIF','tophat.TIF',i.parts[-1])
+        nfile = outdir.joinpath(outfile)
         nfile.parent.mkdir(parents=True,exist_ok=True)
-        print(i,nfile)
         img = skimage.io.imread(i,as_gray=True).astype(np.float32)
         if normalize: img = CellClassifier.normalize_image(img,as_gray=True)
         th = white_tophat(img, square(10))
-        #nimage = np.moveaxis(np.stack((img, th, np.zeros(img.shape))), 0, -1)
-        nimage = np.moveaxis(np.stack((th, th, th)), 0, -1)
-        if visualize: visualize_tophat(img,th,nimage,fig,ax,i)
-        skimage.io.imsave(nfile,(nimage*255).astype(np.uint8))
+        if visualize: visualize_tophat(img,th,fig,ax,i)
+        skimage.io.imsave(nfile,(th*255).astype(np.uint8))
 
 
 
-def visualize_tophat(img,th,combined,fig,ax,title=None):
+def visualize_tophat(img,th,fig,ax,title=None):
     if title: fig.suptitle(title)
     ax[0].imshow(img, cmap='gray')
     ax[0].set_title('Original')
     ax[1].imshow(th, cmap='gray')
     ax[1].set_title('Tophat')
-    ax[2].imshow(combined)
-    ax[2].set_title('Tophat RGB')
     fig.set_tight_layout(True)
     plt.draw()
     plt.waitforbuttonpress(60*30)
@@ -66,11 +75,8 @@ def visualize_tophat(img,th,combined,fig,ax,title=None):
 
 
 if __name__ == '__main__':
-    #create_tophat('../classifier-images/imageset_divided','../classifier-images/imageset_divided_tophat',pattern='**/*.png')
-    #create_tophat('../classifier-images/imageset_divided','/tmp/crud',pattern='**/puncta/*.png',visualize=True)
-    # Lots of following are out of focus
     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
-    #create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','/tmp/crud',pattern='**/*w1.TIF',visualize=True,normalize=True)
+    create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','../09-13-19_LMNA_variants_tile2_bortezomib_20X.tophat', segment_pattern='**/*w1.TIF', visualize=False, normalize=True)
 
     expts = {
         'Treatment': lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
@@ -79,4 +85,3 @@ if __name__ == '__main__':
     }
 
     df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=expts)
-    print(df.head(100))
