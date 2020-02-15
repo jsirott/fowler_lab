@@ -24,8 +24,13 @@ def get_metadata(dir,segment_pattern,classify_pattern):
               })
     print(metadata['segment_base'].head())
     metadata = metadata.join(metadata['segment_base'].str.extract(r'.*?_(?P<Image_Metadata_Well>[A-Z][0-9][0-9])_s(?P<Image_Metadata_Site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
-    print(metadata)
-    #list_of_prefixes = [s[:-5] for s in list_of_select_images_Dendra if s[:-5] + '1.TIF' in list_of_select_images_LMNA]
+    metadata['Treatment'] = metadata['Image_Metadata_Well'].apply(
+        lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
+            y in x for y in ['D04', 'D05', 'D06']) else 'None')
+    metadata['Variant'] = metadata['Image_Metadata_Well'].\
+        apply(lambda x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L')
+    metadata = metadata.set_index('image_number')
+    print(metadata.head())
 
 
 def create_tophat(indir,outdir,pattern=None,visualize=False,normalize=False):
