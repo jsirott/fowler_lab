@@ -63,7 +63,7 @@ class TimeIt(object):
 
 class VisualizeBase(object):
     def __init__(self,classifier,grid=(2,2),figsize=(12,12)):
-        self.classifier = classifier
+        self.config = classifier
         self.grid = grid
         self.figsize = figsize
         self.setup_plots()
@@ -95,7 +95,7 @@ class VisualizeBase(object):
 class VisualizeClassifications(VisualizeBase):
 
     def visualize(self, predictions,crops,n_cells):
-        if not self.classifier.config['visualize_classifications']: return
+        if not self.config['visualize_classifications']: return
         d = {'edge': 1, 'noise': 2, 'puncta': 3, 'wt': 4}
         d = {y: x for x, y in d.items()}
         gridprod = np.product(self.grid)
@@ -170,7 +170,7 @@ class CellClassifier(object):
         self.model = MaskRCNNInitializer(self)
         self.viz = None
         self.vizseg = None
-        if self.config['visualize']:
+        if self.config['visualize_classifications']:
             self.viz = VisualizeSegAndClass(self,grid=(2,2))
         elif self.config['visualize_segs']:
             self.vizseg = VisualizeSegAndClass(self,grid=(1,2),figsize=(18,9))
@@ -376,7 +376,7 @@ class CellClassifier(object):
             crop_max = crop_size - padsmin - cshapes
             padsmax = np.maximum(0,crop_max)
             # Pad if image is too small
-            crop = np.pad(crop,((padsmin[0],padsmax[0]),(padsmin[1],padsmax[1])))
+            crop = np.pad(crop,((padsmin[0],padsmax[0]),(padsmin[1],padsmax[1])),'constant')
 
             # Crop if image is too large
             crop_max = crop_size - crop_min - cshapes
@@ -502,8 +502,6 @@ if __name__ == "__main__":
         'model_path':os.path.join(root_dir, model_file),
         'classification_model_path':'./models/imageset_divided/2x2_binning', #use hyeon-jin's resnet34 model trained on 2x2 binned crops with multiple classes,
         'classification_model_file':'export.pkl',
-         #'classification_model_path':'../classifier-images/imageset_divided',
-         #'classification_model_file' : 'model_test_64.20200120_1303',
         'save_every':500,
         'cell_size_minimum':0,
         'batch_size':512,
@@ -524,6 +522,7 @@ if __name__ == "__main__":
         warnings.simplefilter("ignore", category=FutureWarning)
         mon = CellClassifier(config)
         if args.action == 'segment':
+            # Segment the images using the DSB MASK-RCNN and save results (if requested)
             files = sorted(list(Path(args.input_dir).glob(args.seg_pattern)))
 
             if args.max_images > 0: files = files[0:args.max_images]
@@ -541,6 +540,7 @@ if __name__ == "__main__":
                     with open(outfiles[i],"wb") as f:
                        pickle.dump(results,f)
         elif args.action == 'classify':
+            # Classify previously segmented images
             files = sorted(list(Path(args.input_dir).glob(args.classify_pattern)))
             if args.max_images > 0: files = files[0:args.max_images]
             seg_files = sorted(list(Path(args.seg_dir).glob('*.pkl')))
@@ -553,6 +553,7 @@ if __name__ == "__main__":
                     segmented = pickle.load(f)
                     results = mon.classify_image(file, segmented)
         elif args.action == 'full':
+            # Segment and classify images using DSB Mask-RCNN for segmentation + PyTorch Unet for classification
             cfiles = sorted(list(Path(args.input_dir).glob(args.classify_pattern)))
             sfiles = sorted(list(Path(args.input_dir).glob(args.seg_pattern)))
             if args.max_images > 0: cfiles = cfiles[0:args.max_images]

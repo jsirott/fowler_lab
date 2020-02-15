@@ -63,7 +63,7 @@ if __name__ == '__main__':
         'expand_pixels': 2,
         'boundary_size': 3,
         'crop_size': 64,
-        'visualize': False,
+        'visualize_segs': False,
         'visualize_classifications': False,
         'binning': (2, 2),
         'debug': args.debug,
