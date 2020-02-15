@@ -11,7 +11,7 @@ pd.set_option('max_colwidth',500)
 pd.set_option('max_columns', 100)
 pd.set_option('display.width',1000)
 
-def get_metadata(dir,segment_pattern,classify_pattern):
+def get_metadata(dir,segment_pattern,classify_pattern,expts=None):
     segment_images = list(Path(dir).absolute().glob(segment_pattern))
     classify_images = list(Path(dir).absolute().glob(classify_pattern))
     assert len(segment_images) == len(classify_images)
@@ -23,15 +23,11 @@ def get_metadata(dir,segment_pattern,classify_pattern):
               'classify_base': [p.name for p in classify_images],
               })
     print(metadata['segment_base'].head())
-    metadata = metadata.join(metadata['segment_base'].str.extract(r'.*?_(?P<Image_Metadata_Well>[A-Z][0-9][0-9])_s(?P<Image_Metadata_Site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
-    metadata['Treatment'] = metadata['Image_Metadata_Well'].apply(
-        lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
-            y in x for y in ['D04', 'D05', 'D06']) else 'None')
-    metadata['Variant'] = metadata['Image_Metadata_Well'].\
-        apply(lambda x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L')
-    metadata = metadata.set_index('image_number')
-    print(metadata.head())
-
+    metadata = metadata.join(metadata['segment_base'].str.extract(r'.*?_(?P<image_metadata_well>[A-Z][0-9][0-9])_s(?P<image_metdata_site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
+    if expts:
+        for k,v in expts.items():
+            metadata[k] = metadata['image_metadata_well'].apply(v)
+    return metadata.set_index('image_number')
 
 def create_tophat(indir,outdir,pattern=None,visualize=False,normalize=False):
     pattern = '**/*.png' if pattern is None else pattern
@@ -75,4 +71,12 @@ if __name__ == '__main__':
     # Lots of following are out of focus
     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
     #create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','/tmp/crud',pattern='**/*w1.TIF',visualize=True,normalize=True)
-    get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF')
+
+    expts = {
+        'Treatment': lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
+            y in x for y in ['D04', 'D05', 'D06']) else 'None',
+        'Variant': lambda x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L'
+    }
+
+    df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=expts)
+    print(df.head(100))
