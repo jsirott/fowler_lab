@@ -195,10 +195,11 @@ class CellClassifier(object):
         cell_dataframe.to_csv(os.path.join(output_dir, 'cells.csv'))
         return
 
-    def preprocess(self, image,normalize=True):
-        if isinstance(image,str):
-            image = skimage.io.imread(image)
-        img = downscale_local_mean(image, self.config['binning'])
+    def preprocess(self, img, normalize=True):
+        if isinstance(img, str):
+            img = skimage.io.imread(img)
+        if np.prod(self.config['binning']) != 1:
+            img = downscale_local_mean(img, self.config['binning'])
 
         img = (img.astype(np.single))[:,1:]
 
@@ -537,8 +538,10 @@ if __name__ == "__main__":
             tfile = TiffFile(f)
             img = tfile.pages[0]
             match = re.search(r'id="wavelength".*?value="(\d+)"/',str(img.tags['image_description']))
-            if int(match.group(1)) != 520:
-                raise Exception(f"Invalid segmentation file: wavelength is {int(match.group(1))}")
+            if match is None or len(match.groups()) < 2:
+                logger.warning(f"Can't find metadata for wavelength. Continuing")
+            elif int(match.group(1)) != 520:
+                raise Exception(f"Invalid segmentation file: wavelength is {int(match.group(1))}nm")
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
