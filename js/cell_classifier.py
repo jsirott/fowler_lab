@@ -394,7 +394,7 @@ class CellClassifier(object):
         preprocess_time = t0.get_time()
 
         t0 = TimeIt()
-        predictions = self._pytorch_model(list_of_crops, n_cells)
+        predictions = self._pytorch_model(list_of_crops)
         classify_time = t0.get_time()
 
         # Construct output mask and save information about objects
@@ -420,10 +420,11 @@ class CellClassifier(object):
         logger.debug(f"metadata from classification {celldata}")
         return {'model_data':output_mask, 'meta':celldata}
 
-    def _pytorch_model(self, list_of_crops, n_cells):
+    def _pytorch_model(self, list_of_crops):
         # Perform classifier predictions on gpu
         # Initialize pytorch model
         config = self.config
+        n_cells = len(list_of_crops)
         logger.debug(f"Loading PyTorch classification model from {config['classification_model_path']}")
         from fastai.basic_data import DatasetType
         from fastai.basic_train import load_learner
