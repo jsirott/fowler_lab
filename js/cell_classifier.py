@@ -360,10 +360,10 @@ class CellClassifier(object):
         pred_to_index = {}
         for i in range(n_cells):
             # Mask the image using segmentation data
-            bbox_slice = [slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]])]
+            bbox_slice = (slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]]))
             mask = results[0]['masks'][i][bbox_slice]
             cell_size[i] = np.sum(mask,axis=(0,1))
-            crop = molded_image[bbox_slice + [0]]
+            crop = molded_image[bbox_slice + (0,)]
             if cell_size[i] <= config['cell_size_minimum'] or boundary_cell[i]:
                 continue
             crop = crop * mask
@@ -394,7 +394,7 @@ class CellClassifier(object):
         preprocess_time = t0.get_time()
 
         t0 = TimeIt()
-        predictions = self._pytorch_model(config, list_of_crops, n_cells)
+        predictions = self._pytorch_model(list_of_crops, n_cells)
         classify_time = t0.get_time()
 
         # Construct output mask and save information about objects
@@ -402,7 +402,7 @@ class CellClassifier(object):
         image_number = img_meta['image_id']
         celldata = {}
         for j,i in pred_to_index.items():
-            bbox_slice = [slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]])]
+            bbox_slice = (slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]]))
             seg_mask = results[0]['masks'][i][bbox_slice] * predictions[j]
             output_mask[bbox_slice] = np.bitwise_or(output_mask[bbox_slice],seg_mask)
             celldata[i] = dict(
@@ -420,9 +420,10 @@ class CellClassifier(object):
         logger.debug(f"metadata from classification {celldata}")
         return {'model_data':output_mask, 'meta':celldata}
 
-    def _pytorch_model(self, config, list_of_crops, n_cells):
+    def _pytorch_model(self, list_of_crops, n_cells):
         # Perform classifier predictions on gpu
         # Initialize pytorch model
+        config = self.config
         logger.debug(f"Loading PyTorch classification model from {config['classification_model_path']}")
         from fastai.basic_data import DatasetType
         from fastai.basic_train import load_learner
@@ -445,8 +446,8 @@ class CellClassifier(object):
                                             tensor(range(n_cells)))), axis=1).numpy() + 1
                 predictions.append(predict)
             if self.config['visualize_classifications']:
-                vc = VisualizeClassifications(self.config, grid=(4, 4)).visualize(predictions[0], list_of_crops,
-                                                                                  n_cells)
+                vc = VisualizeClassifications(self.config, grid=(4, 4)).\
+                    visualize(predictions[0], list_of_crops, n_cells)
             predictions = np.concatenate(predictions)
         else:
             predictions = np.array([])
