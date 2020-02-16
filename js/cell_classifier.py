@@ -1,3 +1,4 @@
+import re
 import sys
 
 from skimage import img_as_float
@@ -230,6 +231,7 @@ class CellClassifier(object):
                  where results is the dictionary returned by the DSB segmenting algorithm,
                  'molded_image' is the submitted image after processing, and meta is metadata.
         '''
+
         t0 = TimeIt()
         img = skimage.io.imread(img_name,as_gray=True)
         full_path = str(Path(img_name).absolute())
@@ -447,8 +449,7 @@ class CellClassifier(object):
                                             tensor(range(n_cells)))), axis=1).numpy() + 1
                 predictions.append(predict)
             if self.config['visualize_classifications']:
-                vc = VisualizeClassifications(self.config, grid=(4, 4)).\
-                    visualize(predictions[0], list_of_crops, n_cells)
+                VisualizeClassifications(self.config, grid=(4, 4)).visualize(predictions[0], list_of_crops, n_cells)
             predictions = np.concatenate(predictions)
         else:
             predictions = np.array([])
@@ -525,12 +526,27 @@ if __name__ == "__main__":
     logger.info("Configuration:")
     logger.info(pprint.pformat(config))
 
+    def validate_segment(fname):
+        '''
+        Make sure this really is a Dendra image (520nm)
+        :param fname:
+        :return:
+        '''
+        from skimage.external.tifffile import TiffFile
+        with open(fname,"rb") as f:
+            tfile = TiffFile(f)
+            img = tfile.pages[0]
+            match = re.search(r'id="wavelength".*?value="(\d+)"/',str(img.tags['image_description']))
+            if int(match.group(1)) != 520:
+                raise Exception(f"Invalid segmentation file: wavelength is {int(match.group(1))}")
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=FutureWarning)
         mon = CellClassifier(config)
         if args.action == 'segment':
             # Segment the images using the DSB MASK-RCNN and save results (if requested)
             files = sorted(list(Path(args.input_dir).glob(args.seg_pattern)))
+            validate_segment(files[0])
 
             if args.max_images > 0: files = files[0:args.max_images]
             outfiles = None
