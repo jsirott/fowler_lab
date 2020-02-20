@@ -4,6 +4,7 @@ import sys
 import skimage.io
 from pathlib import Path
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 from skimage.morphology import white_tophat,disk,square
 import numpy as np
 from cell_classifier import CellClassifier
@@ -14,6 +15,8 @@ from tqdm import tqdm
 import re
 import pprint
 from mrcnn import utils
+from skimage.filters import threshold_otsu
+from copy import copy
 
 
 logging.basicConfig(level=logging.INFO)
@@ -64,8 +67,6 @@ def create_tophat(indir, outdir, segment_pattern=None, visualize=False, normaliz
         if visualize: visualize_tophat(img,th,fig,ax,i)
         skimage.io.imsave(nfile,(th*255).astype(np.uint8))
 
-
-
 def visualize_tophat(img,th,fig,ax,title=None):
     if title: fig.suptitle(title)
     ax[0].imshow(img, cmap='gray')
@@ -83,64 +84,66 @@ def mask_images(config, indir, seg_pattern, class_pattern, class_orig_pattern):
     class_files = sorted(list(Path(indir).glob(class_pattern)))
     class_orig_files = sorted(list(Path(indir).glob(class_orig_pattern)))
     assert len(seg_files) == len(class_files) == len(class_orig_files)
-    fig, ax = plt.subplots(2, 2, figsize=(16,16))
-    ax = ax.ravel()
-    cc = CellClassifier(config)
-    for i,f in enumerate(seg_files):
+    fig, axes = plt.subplots(2, 3, figsize=(16,16))
+    axes = axes.ravel()
+    classifier = CellClassifier(config)
+    start = 10
+    for i,f in enumerate(seg_files[start:]):
         class_file = class_files[i]
         class_orig_file = class_orig_files[i]
         print(f,class_file, class_orig_file)
 
-        img1 = cc.preprocess(str(class_file), normalize=False)
+        img1 = classifier.preprocess(str(class_file), normalize=False)
         img1 = img1/255.
         img1, _, _, _, _ = utils.resize_image(img1,
-                                              min_dim=cc.inference_config.IMAGE_MIN_DIM,
-                                              min_scale=cc.inference_config.IMAGE_MIN_SCALE,
-                                              max_dim=cc.inference_config.IMAGE_MAX_DIM,
-                                              mode=cc.inference_config.IMAGE_RESIZE_MODE)
+                                              min_dim=classifier.inference_config.IMAGE_MIN_DIM,
+                                              min_scale=classifier.inference_config.IMAGE_MIN_SCALE,
+                                              max_dim=classifier.inference_config.IMAGE_MAX_DIM,
+                                              mode=classifier.inference_config.IMAGE_RESIZE_MODE)
 
-        img_orig = cc.preprocess(str(class_orig_file), normalize=True)
+        img_orig = classifier.preprocess(str(class_orig_file), normalize=True)
         img_orig, _, _, _, _ = utils.resize_image(img_orig,
-                                              min_dim=cc.inference_config.IMAGE_MIN_DIM,
-                                              min_scale=cc.inference_config.IMAGE_MIN_SCALE,
-                                              max_dim=cc.inference_config.IMAGE_MAX_DIM,
-                                              mode=cc.inference_config.IMAGE_RESIZE_MODE)
+                                              min_dim=classifier.inference_config.IMAGE_MIN_DIM,
+                                              min_scale=classifier.inference_config.IMAGE_MIN_SCALE,
+                                              max_dim=classifier.inference_config.IMAGE_MAX_DIM,
+                                              mode=classifier.inference_config.IMAGE_RESIZE_MODE)
 
-        results = cc.segment_nucleus(f)
+        results = classifier.segment_nucleus(f)
         model_data = results['model_data'][0]
         img2 = results['molded_image']
         for j, roi in enumerate(model_data['rois']):
+            mask = model_data['masks'][j]
 
-            from skimage.draw import rectangle, rectangle_perimeter
             cell_bb = roi.astype(np.int32)
             bbox_slice = (slice(*cell_bb[[0, 2]]), slice(*cell_bb[[1, 3]]))
 
-            rr, cc = rectangle_perimeter(cell_bb[[0, 1]], cell_bb[[2, 3]] - 2)
-            masked = np.copy(img1)
-            masked[rr,cc,1:] = 0
-            masked[rr,cc,0] = 1
+            sliced = img1*np.stack((mask,mask,mask),axis=-1)
+            sliced = sliced[bbox_slice]
+            visualize_tophat_in_context(img_orig, img1, sliced, img2, axes, cell_bb)
 
-            masked2 = np.copy(img2)
-            masked2[rr, cc, 1:] = 0
-            masked2[rr, cc, 0] = 1
 
-            masked3 = np.copy(img_orig)
-            masked3[rr, cc, 1:] = 0
-            masked3[rr, cc, 0] = 1
-
-            sliced = img1[bbox_slice]
-            if np.amax(sliced) > 0.5:
-                ax[0].set_title('Tophat extraction')
-                ax[0].imshow(sliced)
-                ax[1].set_title('LMNA-Tophat segment box')
-                ax[1].imshow(masked)
-                ax[2].set_title('Dendra segment box')
-                ax[2].imshow(masked2)
-                ax[3].set_title('LMNA segment box')
-                ax[3].imshow(masked3)
-                plt.tight_layout()
-                plt.draw()
-                plt.waitforbuttonpress(60 * 30)
+def visualize_tophat_in_context(img_orig, img_normalized, tophat_img, img_to_segment, axes, cell_bb):
+    if np.amax(tophat_img) > 0.4:
+        rect = patches.Rectangle(cell_bb[[1, 0]], *(cell_bb[[3, 2]] - cell_bb[[1, 0]]), edgecolor='r', facecolor='none')
+        axes[0].set_title('Tophat extraction')
+        axes[0].imshow(tophat_img)
+        axes[1].set_title('LMNA-Tophat segment box')
+        axes[1].imshow(img_normalized)
+        axes[1].add_patch(copy(rect))
+        axes[2].set_title('Dendra segment box')
+        axes[2].imshow(img_to_segment)
+        axes[2].add_patch(copy(rect))
+        axes[3].set_title('LMNA segment box')
+        axes[3].imshow(img_orig)
+        axes[3].add_patch(copy(rect))
+        axes[4].set_title('Tophat extraction histogram')
+        axes[4].set_xlim(0, 1)
+        axes[4].set_yscale('log')
+        axes[4].hist(tophat_img.ravel())
+        plt.tight_layout()
+        plt.draw()
+        plt.waitforbuttonpress(60 * 30)
+        [a.clear() for a in axes]
 
 if __name__ == '__main__':
     root_dir = "../DSB_2018-master/"
@@ -164,7 +167,7 @@ if __name__ == '__main__':
         'debug':True,
         'tf_gpu_fraction': None
     }
-    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*tophat*.TIF', '**/*w1*.TIF')
+    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*B*w2*.TIF', '**/*B*tophat*.TIF', '**/*B*w1*.TIF')
 
     # if False:
     #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
