@@ -5,6 +5,7 @@ import skimage.io
 from pathlib import Path
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from skimage import img_as_ubyte
 from skimage.morphology import white_tophat,disk,square
 import numpy as np
 from cell_classifier import CellClassifier
@@ -67,7 +68,9 @@ def create_tophat(indir, outdir, segment_pattern=None, visualize=False, normaliz
         if visualize: visualize_tophat(img,th,fig,ax,i)
         skimage.io.imsave(nfile,(th*255).astype(np.uint8))
 
-def visualize_tophat(img,th,fig,ax,title=None):
+def visualize_tophat(img,th,fig,title=None):
+    fig, ax = plt.subplots(2, 3, figsize=(16,16))
+    axes = ax.ravel()
     if title: fig.suptitle(title)
     ax[0].imshow(img, cmap='gray')
     ax[0].set_title('Original')
@@ -77,32 +80,38 @@ def visualize_tophat(img,th,fig,ax,title=None):
     plt.draw()
     plt.waitforbuttonpress(60*30)
 
-def mask_images(config, indir, seg_pattern, class_pattern, class_orig_pattern):
-    # Get the segmented regions
-    # rois: [N, (y1, x1, y2, x2)] detection bounding boxes
+def mask_images(config, indir, seg_pattern, class_pattern, class_tophat_pattern, outdir=None, visualize=True):
+    '''
+    Mask segmented nuclei and write the data to a directory
+    :param config:
+    :param indir:
+    :param seg_pattern:
+    :param class_pattern:
+    :param class_tophat_pattern:
+    :return:
+    '''
+    if outdir is None:
+        outdir = Path(indir).joinpath('masked')
+        outdir.mkdir(parents=True, exist_ok=True)
     seg_files = sorted(list(Path(indir).glob(seg_pattern)))
     class_files = sorted(list(Path(indir).glob(class_pattern)))
-    class_orig_files = sorted(list(Path(indir).glob(class_orig_pattern)))
-    assert len(seg_files) == len(class_files) == len(class_orig_files)
-    fig, axes = plt.subplots(2, 3, figsize=(16,16))
-    axes = axes.ravel()
+    class_tophat_files = sorted(list(Path(indir).glob(class_tophat_pattern)))
+    assert len(seg_files) == len(class_files) == len(class_tophat_files)
     classifier = CellClassifier(config)
-    start = 10
-    for i,f in enumerate(seg_files[start:]):
+    for i,f in enumerate(seg_files):
         class_file = class_files[i]
-        class_orig_file = class_orig_files[i]
-        print(f,class_file, class_orig_file)
+        class_tophat_file = class_tophat_files[i]
+        print(f,class_file, class_tophat_file)
 
-        img1 = classifier.preprocess(str(class_file), normalize=False)
-        img1 = img1/255.
-        img1, _, _, _, _ = utils.resize_image(img1,
+        class_file_processed = classifier.preprocess(str(class_file), normalize=True)
+        class_file_processed, _, _, _, _ = utils.resize_image(class_file_processed,
                                               min_dim=classifier.inference_config.IMAGE_MIN_DIM,
                                               min_scale=classifier.inference_config.IMAGE_MIN_SCALE,
                                               max_dim=classifier.inference_config.IMAGE_MAX_DIM,
                                               mode=classifier.inference_config.IMAGE_RESIZE_MODE)
 
-        img_orig = classifier.preprocess(str(class_orig_file), normalize=True)
-        img_orig, _, _, _, _ = utils.resize_image(img_orig,
+        class_file_tophap_processed = classifier.preprocess(str(class_tophat_file), normalize=False)
+        class_file_tophap_processed, _, _, _, _ = utils.resize_image(class_file_tophap_processed/255,
                                               min_dim=classifier.inference_config.IMAGE_MIN_DIM,
                                               min_scale=classifier.inference_config.IMAGE_MIN_SCALE,
                                               max_dim=classifier.inference_config.IMAGE_MAX_DIM,
@@ -117,29 +126,42 @@ def mask_images(config, indir, seg_pattern, class_pattern, class_orig_pattern):
             cell_bb = roi.astype(np.int32)
             bbox_slice = (slice(*cell_bb[[0, 2]]), slice(*cell_bb[[1, 3]]))
 
-            sliced = img1*np.stack((mask,mask,mask),axis=-1)
+            sliced = class_file_tophap_processed*np.stack((mask,mask,mask),axis=-1)
             sliced = sliced[bbox_slice]
-            visualize_tophat_in_context(img_orig, img1, sliced, img2, axes, cell_bb)
+            if visualize: visualize_tophat_segmented(class_file_processed, class_file_tophap_processed, sliced, img2,
+                                                     cell_bb)
+            name = Path('_'.join(class_tophat_file.name.split('_')[-3:])).with_suffix('')
+            suboutdir = outdir.joinpath(name)
+            suboutdir.mkdir(exist_ok=True)
+            outfile = suboutdir.joinpath(f"c{j:04}").with_suffix('.png')
+
+            skimage.io.imsave(outfile, img_as_ubyte(sliced))
+            logger.info(f"Wrote masked image {outfile}")
 
 
-def visualize_tophat_in_context(img_orig, img_normalized, tophat_img, img_to_segment, axes, cell_bb):
-    if np.amax(tophat_img) > 0.4:
+def visualize_tophat_segmented(class_img, tophat_img, tophat_clipped_img, img_to_segment, cell_bb):
+    f = visualize_tophat_segmented
+    if not hasattr(f,'_fig'):
+        f._fig, f._axes = plt.subplots(2, 3, figsize=(16, 16))
+    fig,axes = f._fig, f._axes
+    axes = axes.ravel()
+    if np.amax(tophat_clipped_img) > 0.4:
         rect = patches.Rectangle(cell_bb[[1, 0]], *(cell_bb[[3, 2]] - cell_bb[[1, 0]]), edgecolor='r', facecolor='none')
         axes[0].set_title('Tophat extraction')
-        axes[0].imshow(tophat_img)
+        axes[0].imshow(tophat_clipped_img)
         axes[1].set_title('LMNA-Tophat segment box')
-        axes[1].imshow(img_normalized)
+        axes[1].imshow(tophat_img)
         axes[1].add_patch(copy(rect))
         axes[2].set_title('Dendra segment box')
         axes[2].imshow(img_to_segment)
         axes[2].add_patch(copy(rect))
         axes[3].set_title('LMNA segment box')
-        axes[3].imshow(img_orig)
+        axes[3].imshow(class_img)
         axes[3].add_patch(copy(rect))
         axes[4].set_title('Tophat extraction histogram')
         axes[4].set_xlim(0, 1)
         axes[4].set_yscale('log')
-        axes[4].hist(tophat_img.ravel())
+        axes[4].hist(tophat_clipped_img.ravel())
         plt.tight_layout()
         plt.draw()
         plt.waitforbuttonpress(60 * 30)
@@ -167,7 +189,8 @@ if __name__ == '__main__':
         'debug':True,
         'tf_gpu_fraction': None
     }
-    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*B*w2*.TIF', '**/*B*tophat*.TIF', '**/*B*w1*.TIF')
+    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*B*w2*.TIF', '**/*B*w1*.TIF', '**/*B*tophat*.TIF')
+    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
 
     # if False:
     #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
