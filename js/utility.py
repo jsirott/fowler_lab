@@ -189,8 +189,8 @@ if __name__ == '__main__':
         'debug':True,
         'tf_gpu_fraction': None
     }
-    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*B*w2*.TIF', '**/*B*w1*.TIF', '**/*B*tophat*.TIF')
-    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
+    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
+    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*B*w2*.TIF', '**/*B*w1*.TIF', '**/*B*tophat*.TIF')
 
     # if False:
     #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.

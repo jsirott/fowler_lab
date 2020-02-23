@@ -6,6 +6,12 @@ from skimage import img_as_float
 sys.path.append('../DSB_2018-master')
 
 import numpy as np
+#TODO - don't die on RuntimeError from pytorch
+#TODO - Fix finalize method
+#TODO - Every rpyc connect call launches a new ImageAnalysis class which is slow due to TF startup
+#TODO - Following fails with skimage. Look at this later because speedups are remarkable with cupy
+#TODO - Very sensitive to binning/crop size. Some images from different datasets have different data sizes
+
 import skimage.io
 import time
 import os
@@ -34,9 +40,6 @@ from scipy.sparse.bsr import bsr_matrix
 
 from decorators import pickler
 
-#TODO - don't die on RuntimeError from pytorch
-#TODO - Fix finalize method
-#TODO - Every rpyc connect call launches a new ImageAnalysis class which is slow due to TF startup
 
 
 
@@ -70,6 +73,9 @@ class VisualizeBase(object):
         self.setup_plots()
         self.texts = []
 
+    def set_title(self, name):
+        self.fig.suptitle(name)
+
     def setup_plots(self):
         self.fig, self.ax = plt.subplots(*self.grid, figsize=self.figsize,num=1, clear=True)
         self.fig.set_tight_layout(True)
@@ -95,7 +101,7 @@ class VisualizeBase(object):
 
 class VisualizeClassifications(VisualizeBase):
 
-    def visualize(self, predictions,crops,n_cells):
+    def visualize(self,predictions,crops,n_cells):
         if not self.config['visualize_classifications']: return
         d = {'edge': 1, 'noise': 2, 'puncta': 3, 'wt': 4}
         d = {y: x for x, y in d.items()}
@@ -104,7 +110,7 @@ class VisualizeClassifications(VisualizeBase):
         for i in range(0, len(predictions), gridprod):
             for k, predict in enumerate(predictions[i:i + gridprod]):
                 title = f"{d[predict]}/{i + k}/{n_cells}"
-                img = crops[k + i].numpy()[0]
+                img = crops[k + i][0]
                 self.visualize_image(img,title,cmap='gray')
 
 
@@ -198,7 +204,7 @@ class CellClassifier(object):
     def preprocess(self, img, normalize=True):
         if isinstance(img, str):
             img = skimage.io.imread(img)
-        if np.prod(self.config['binning']) != 1:
+        if np.prod(np.array(self.config['binning'])) != 1:
             img = downscale_local_mean(img, self.config['binning'])
 
         img = (img.astype(np.single))[:,1:]
@@ -397,7 +403,13 @@ class CellClassifier(object):
         preprocess_time = t0.get_time()
 
         t0 = TimeIt()
-        predictions = self._pytorch_model(list_of_crops)
+        name = Path('_'.join(img_name.name.split('_')[-3:])).with_suffix('')
+        if self.config['visualize_classifications']:
+            vc = VisualizeClassifications(self.config, grid=(4, 4))
+        predictions = self._pytorch_model(img_name,list_of_crops)
+        if self.config['visualize_classifications']:
+            vc.set_title(name)
+            vc.visualize(predictions, list_of_crops, n_cells)
         classify_time = t0.get_time()
 
         # Construct output mask and save information about objects
@@ -423,10 +435,9 @@ class CellClassifier(object):
         logger.debug(f"metadata from classification {celldata}")
         return {'model_data':output_mask, 'meta':celldata}
 
-    def _pytorch_model(self, list_of_crops):
+    def _pytorch_model(self, img_name, list_of_crops):
         # Perform classifier predictions on gpu
         # Initialize pytorch model
-        config = self.config
         n_cells = len(list_of_crops)
         logger.debug(f"Loading PyTorch classification model from {config['classification_model_path']}")
         from fastai.basic_data import DatasetType
@@ -449,8 +460,6 @@ class CellClassifier(object):
                                          imagenet_std).cuda(),
                                             tensor(range(n_cells)))), axis=1).numpy() + 1
                 predictions.append(predict)
-            if self.config['visualize_classifications']:
-                VisualizeClassifications(self.config, grid=(4, 4)).visualize(predictions[0], list_of_crops, n_cells)
             predictions = np.concatenate(predictions)
         else:
             predictions = np.array([])
@@ -520,7 +529,7 @@ if __name__ == "__main__":
         'visualize':args.visualize,
         'visualize_segs' : args.visualize_segs,
         'visualize_classifications' : args.visualize_classifications,
-        'binning': (2,2),
+        'binning': (1,1),
         'debug': args.debug,
         'tf_gpu_fraction': args.tf_gpu_fraction
     }
