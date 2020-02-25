@@ -37,6 +37,7 @@ from nucleus import nucleus
 import matplotlib.patches as patches
 from mrcnn import my_inference
 from scipy.sparse.bsr import bsr_matrix
+import numpy.ma as ma
 
 from decorators import pickler
 
@@ -214,12 +215,14 @@ class CellClassifier(object):
         return CellClassifier.normalize_image(img)
 
     @staticmethod
-    def normalize_image(img, as_gray=False):
+    def normalize_image(img, as_gray=False,mask=None):
+        if mask is not None:
+            img[img == mask] = np.nan
 
         # Normalize images
         percentile = 99.9
-        high = np.percentile(img, percentile)
-        low = np.percentile(img, 100 - percentile)
+        high = np.nanpercentile(img, percentile)
+        low = np.nanpercentile(img, 100 - percentile)
 
         img = np.minimum(high, img)
         img = np.maximum(low, img)

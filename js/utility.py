@@ -71,7 +71,6 @@ def create_tophat(indir, outdir, segment_pattern=None, visualize=False, normaliz
 
 def visualize_tophat(img,th,fig,title=None):
     fig, ax = plt.subplots(2, 3, figsize=(16,16))
-    axes = ax.ravel()
     if title: fig.suptitle(title)
     ax[0].imshow(img, cmap='gray')
     ax[0].set_title('Original')
@@ -80,6 +79,18 @@ def visualize_tophat(img,th,fig,title=None):
     fig.set_tight_layout(True)
     plt.draw()
     plt.waitforbuttonpress(60*30)
+
+def visualize_training_data(indir, pattern):
+    data_files = sorted(list(Path(indir).glob(pattern)))
+    for f in data_files:
+        print(f)
+        img = skimage.img_as_float32(skimage.io.imread(f))[...,0]
+        # Eliminate masking artifacts
+        img[img < 0.1] = np.nan
+        img = CellClassifier.normalize_image(img)
+        visualize_segmented(img)
+
+
 
 def mask_images(config, indir, seg_pattern, class_pattern, outdir=None, visualize=True):
     '''
@@ -120,8 +131,7 @@ def mask_images(config, indir, seg_pattern, class_pattern, outdir=None, visualiz
 
             sliced = class_file_processed*np.stack((mask,mask,mask),axis=-1)
             sliced = classifier.normalize_image(sliced[bbox_slice],as_gray=True)
-            if visualize: visualize_segmented(class_file_processed, sliced, img2,
-                                              cell_bb)
+            if visualize: visualize_segmented(sliced, class_file_processed, img2, cell_bb)
             name = Path('_'.join(class_file.name.split('_')[-3:])).with_suffix('')
             suboutdir = outdir.joinpath(name)
             suboutdir.mkdir(exist_ok=True)
@@ -131,40 +141,41 @@ def mask_images(config, indir, seg_pattern, class_pattern, outdir=None, visualiz
             logger.info(f"Wrote masked image {outfile}")
 
 
-def visualize_segmented(class_img, clipped_img, img_to_segment, cell_bb, logged=True):
+def visualize_segmented(clipped_img, class_img=None, img_to_segment=None, cell_bb=None, logged=False):
     f = visualize_segmented
     if not hasattr(f,'_fig'):
         f._fig, f._axes = plt.subplots(2, 2, figsize=(16, 16))
     fig,axes = f._fig, f._axes
     axes = axes.ravel()
-    if np.amax(clipped_img) > 0.4:
+    if cell_bb is not None:
         rect = patches.Rectangle(cell_bb[[1, 0]], *(cell_bb[[3, 2]] - cell_bb[[1, 0]]), edgecolor='r', facecolor='none')
-        clipped_img_nz = clipped_img[clipped_img > 0]
-        axes[0].set_title('LMNA extraction')
-        axes[0].imshow(clipped_img)
+    clipped_img_nz = clipped_img[clipped_img > 0]
+    axes[0].set_title('LMNA extraction')
+
+    axes[0].imshow(clipped_img)
+    if img_to_segment is not None:
         axes[1].set_title('Dendra segment box')
         axes[1].imshow(img_to_segment)
         axes[1].add_patch(copy(rect))
+    if class_img is not None:
         axes[2].set_title('LMNA segment box')
         axes[2].imshow(CellClassifier.normalize_image(class_img, as_gray=True))
         axes[2].add_patch(copy(rect))
-        if not logged:
-            display_clipped = clipped_img_nz
-            axes[3].set_xlim(0, 1)
-        else:
-            display_clipped = np.log(1 + clipped_img_nz)
-            axes[3].set_xlim(0, np.log(2))
-        sk = skew(display_clipped)
-        tstr = f'Histm={np.mean(display_clipped):.2} std={np.std(display_clipped):.2} ' \
-               f'min={np.min(display_clipped):.2} max={np.max(display_clipped):.2} skew={skew(display_clipped):.2})'
-        axes[3].set_title(tstr)
-        #axes[3].set_yscale('log')
-
-        axes[3].hist(np.log(1+clipped_img_nz.ravel()), normed=True)
-        plt.tight_layout()
-        plt.draw()
-        plt.waitforbuttonpress(60 * 30)
-        [a.clear() for a in axes]
+    if not logged:
+        display_clipped = clipped_img_nz
+        axes[3].set_xlim(0, 1)
+    else:
+        display_clipped = np.log(1 + clipped_img_nz)
+        axes[3].set_xlim(0, np.log(2))
+    tstr = f'Histm={np.mean(display_clipped):.2} std={np.std(display_clipped):.2} ' \
+           f'min={np.min(display_clipped):.2} max={np.max(display_clipped):.2} skew={skew(display_clipped):.2})'
+    axes[3].set_title(tstr)
+    axes[3].set_yscale('log')
+    axes[3].hist(display_clipped,bins=25)
+    plt.tight_layout()
+    plt.draw()
+    plt.waitforbuttonpress(60 * 30)
+    [a.clear() for a in axes]
 
 if __name__ == '__main__':
     root_dir = "../DSB_2018-master/"
@@ -189,7 +200,8 @@ if __name__ == '__main__':
         'tf_gpu_fraction': None
     }
     #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
-    mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*D06*w2*.TIF', '**/*D06*w1*.TIF')
+    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*D06*w2*.TIF', '**/*D06*w1*.TIF')
+    visualize_training_data('../classifier-images/imageset_divided/train', '**/edge/*.png')
 
     # if False:
     #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
