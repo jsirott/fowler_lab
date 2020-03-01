@@ -80,18 +80,6 @@ def visualize_tophat(img,th,fig,title=None):
     plt.draw()
     plt.waitforbuttonpress(60*30)
 
-def visualize_training_data(indir, pattern):
-    data_files = sorted(list(Path(indir).glob(pattern)))
-    for f in data_files:
-        print(f)
-        img = skimage.img_as_float32(skimage.io.imread(f))[...,0]
-        # Eliminate masking artifacts
-        img[img < 0.1] = np.nan
-        img = CellClassifier.normalize_image(img)
-        visualize_segmented(img)
-
-
-
 def mask_images(config, indir, seg_pattern, class_pattern, outdir=None, visualize=True):
     '''
     Mask segmented nuclei and write the data to a directory
@@ -170,12 +158,51 @@ def visualize_segmented(clipped_img, class_img=None, img_to_segment=None, cell_b
     tstr = f'Histm={np.mean(display_clipped):.2} std={np.std(display_clipped):.2} ' \
            f'min={np.min(display_clipped):.2} max={np.max(display_clipped):.2} skew={skew(display_clipped):.2})'
     axes[3].set_title(tstr)
-    axes[3].set_yscale('log')
-    axes[3].hist(display_clipped,bins=25)
+    #axes[3].set_yscale('log')
+    #axes[3].hist(display_clipped,bins=25)
+    axes[3].hist(display_clipped, density=True, cumulative=True)
     plt.tight_layout()
     plt.draw()
     plt.waitforbuttonpress(60 * 30)
     [a.clear() for a in axes]
+
+def visualize_training_data(indir, pattern):
+    data_files = sorted(list(Path(indir).glob(pattern)))
+    for f in data_files:
+        print(f)
+        img = skimage.img_as_float32(skimage.io.imread(f))[...,0]
+        # Eliminate masking artifacts
+        img[img < 0.15] = 0
+        img = CellClassifier.normalize_image(img)
+        #visualize_skimage_segments(img)
+        visualize_segmented(img)
+
+def analyze_training_data(indir,patterns):
+    results = {}
+    fig, axes = plt.subplots(len(patterns), 1, figsize=(6,6))
+    axes = axes.ravel()
+    for j, pattern in enumerate(patterns):
+        data_files = sorted(list(Path(indir).glob(pattern)))
+        imgs = [skimage.img_as_float32(skimage.io.imread(f))[...,0].ravel() for f in data_files]
+        max_size = max([img.shape[0] for img in imgs])
+        narray = np.zeros((len(imgs), max_size),dtype=np.float32)
+        for i,img in enumerate(imgs):
+            narray[i,0:len(img)] = img
+        imgs = narray
+        # Eliminate masking artifacts
+        imgs[imgs < 0.15] = 0
+        imgs = np.array([CellClassifier.normalize_image(img) for img in imgs])
+        imgs = imgs[imgs > 0]
+        #for i,img in enumerate(imgs): print(data_files[i],img.shape)
+        tstr = f'pattern={pattern} mean={np.mean(imgs):.2} median={np.median(imgs):.2} std={np.std(imgs):.2} min={np.nanmin(imgs):.2} max={np.nanmax(imgs):.2}'# skew={skew(imgs):.2})'
+        print(tstr)
+        results[tstr] = imgs
+        axes[j].hist(imgs, density=True, cumulative=True)
+        axes[j].set_title(pattern)
+    plt.show()
+
+
+
 
 if __name__ == '__main__':
     root_dir = "../DSB_2018-master/"
@@ -201,7 +228,9 @@ if __name__ == '__main__':
     }
     #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
     #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*D06*w2*.TIF', '**/*D06*w1*.TIF')
-    visualize_training_data('../classifier-images/imageset_divided/train', '**/edge/*.png')
+    #visualize_training_data('../classifier-images/imageset_divided/train', '**/wt/*.png')
+    analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png','**/edge/*.png'))
+    #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png'))
 
     # if False:
     #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.

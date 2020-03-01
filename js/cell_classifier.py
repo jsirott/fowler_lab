@@ -6,6 +6,7 @@ from skimage import img_as_float
 sys.path.append('../DSB_2018-master')
 
 import numpy as np
+#TODO -- make sure that fast.ai learner was trained on image that is same as that specified by config file
 #TODO - don't die on RuntimeError from pytorch
 #TODO - Fix finalize method
 #TODO - Every rpyc connect call launches a new ImageAnalysis class which is slow due to TF startup
@@ -104,13 +105,14 @@ class VisualizeClassifications(VisualizeBase):
 
     def visualize(self,predictions,crops,n_cells):
         if not self.config['visualize_classifications']: return
-        d = {'edge': 1, 'noise': 2, 'puncta': 3, 'wt': 4}
+        #d = {'edge': 1, 'noise': 2, 'puncta': 3, 'wt': 4}
+        d = {'discard': 1, 'puncta': 2, 'wt': 3}
         d = {y: x for x, y in d.items()}
         gridprod = np.product(self.grid)
 
         for i in range(0, len(predictions), gridprod):
             for k, predict in enumerate(predictions[i:i + gridprod]):
-                title = f"{d[predict]}/{i + k}/{n_cells}"
+                title = f"{d[np.argmax(predict)+1]}/{np.max(predict):.2}/{i + k}/{n_cells}"
                 img = crops[k + i][0]
                 self.visualize_image(img,title,cmap='gray')
 
@@ -421,7 +423,8 @@ class CellClassifier(object):
         celldata = {}
         for j,i in pred_to_index.items():
             bbox_slice = (slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]]))
-            seg_mask = results[0]['masks'][i][bbox_slice] * predictions[j]
+            cclass = np.argmax(predictions[j]) + 1
+            seg_mask = results[0]['masks'][i][bbox_slice] * cclass
             output_mask[bbox_slice] = np.bitwise_or(output_mask[bbox_slice],seg_mask)
             celldata[i] = dict(
                 zip(
@@ -429,7 +432,7 @@ class CellClassifier(object):
                      'boundary_cell', 'activated','preprocess_time','classify_time'),
                     (image_number, img_meta['source_image_path'], cell_dim[i],
                                        cell_centroid[i], cell_size[i], boundary_cell[i],
-                                       predictions[j],classify_time,preprocess_time)
+                                       cclass,classify_time,preprocess_time)
                 ))
         output_mask = output_mask[padding[0][0]:nshape[0] - padding[0][1], padding[1][0]:nshape[1] - padding[1][1]]
         if not output_mask.flags.c_contiguous:
@@ -455,14 +458,15 @@ class CellClassifier(object):
         if n_cells > 0:
             predictions = []
             for k in range(0, n_cells, config['batch_size']):
-                predict = np.argmax(
-                    learn.pred_batch(ds_type=DatasetType.Test,
-                                     batch=(normalize(
-                                         torch.stack(list_of_crops[k:k + config['batch_size']]).float(),
-                                         imagenet_mean,
-                                         imagenet_std).cuda(),
-                                            tensor(range(n_cells)))), axis=1).numpy() + 1
-                predictions.append(predict)
+                # [prob1,prob2,...,probn] per class
+                results = learn.pred_batch(ds_type=DatasetType.Test,
+                                 batch=(normalize(
+                                     torch.stack(list_of_crops[k:k + config['batch_size']]).float(),
+                                     imagenet_mean,
+                                     imagenet_std).cuda(),
+                                        tensor(range(n_cells))))
+                #predict = np.argmax(results, axis=1).numpy() + 1
+                predictions.append(results)
             predictions = np.concatenate(predictions)
         else:
             predictions = np.array([])
@@ -521,8 +525,10 @@ if __name__ == "__main__":
         'root_dir' : root_dir,
         'model_file': model_file,
         'model_path':os.path.join(root_dir, model_file),
-        'classification_model_path':'./models/imageset_divided/2x2_binning', #use hyeon-jin's resnet34 model trained on 2x2 binned crops with multiple classes,
-        'classification_model_file':'export.pkl',
+        #'classification_model_path':'./models/imageset_divided/2x2_binning', #use hyeon-jin's resnet34 model trained on 2x2 binned crops with multiple classes,
+        #'classification_model_file':'export.pkl',
+        'classification_model_path' : '../classifier-images/imageset_3class',
+        'classification_model_file':'model_64.20200229_1659.pkl',
         'save_every':500,
         'cell_size_minimum':0,
         'batch_size':512,

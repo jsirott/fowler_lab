@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 np.random.seed(2)
 
 def train(ckpt=None,cycles=100, max_lr = slice(None,1e-2,None),freeze=True,metric=accuracy,
-          model = models.resnet50,do_lr_find=False,size=None,bs=64):
+          model = models.resnet50,do_lr_find=False,size=None,bs=512):
     logger.info(f"Training model {model} with size of {size}")
     ckptfile = f"model_{size}.{dt.datetime.now().strftime('%Y%m%d_%H%M')}"
     data = get_data(size=size,bs=bs)
@@ -43,7 +43,7 @@ def export(ckpt,model,size,bs):
     data = get_data(size=size,bs=bs)
     learner = cnn_learner(data,model)
     learner.load(ckpt)
-    learner.export(ckpt)
+    learner.export(ckpt + '.pkl')
 
 class MyTransform(TfmPixel):
     '''
@@ -64,17 +64,18 @@ class MyTransform(TfmPixel):
 
 def get_data(size,bs):
     xforms = get_transforms(do_flip=True, max_rotate=180)
-    data = ImageDataBunch.from_folder(path='../classifier-images/imageset_divided_tophat/',
+    data = ImageDataBunch.from_folder(path='../classifier-images/imageset_3class/',
                                       train='train', valid='validation',
                                       ds_tfms=xforms,
-                                      size=data_size,bs=bs)
+                                      size=size,bs=bs)
     data.show_batch(rows=3, figsize=(7, 6))
     data.normalize(imagenet_stats)
     return data
 
 if __name__ == '__main__':
-    data_size = 256  # 1,1 binning
-    bs = 64
+    # Make sure data_size matches classifier image size
+    data_size = 64
+    bs = 96
     lr = 7e-3
     model = models.resnet34
     #train(cycles=1000,model=models.resnet50,max_lr = slice(None,7e-3,None),do_lr_find=False,size=data_size,bs=bs)
