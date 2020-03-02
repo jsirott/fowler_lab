@@ -197,22 +197,6 @@ class CellClassifier(object):
         self.md = Metadata()
 
 
-    def finalize(self):
-
-        # Save data as dataframes
-        imagedata = self.config['imagedata']
-        celldata = self.config['celldata']
-        image_dataframe = pd.DataFrame.from_dict(imagedata, orient='index',
-                                                 columns=['ImageNumber', 'ImageDir', 'NCells', 'NCells_Activated',
-                                                          'SegmentationTime', 'TotalTime'])
-        cell_dataframe = pd.DataFrame.from_dict(celldata, orient='index',
-                                                columns=['ImageNumber', 'ImageDir', 'ObjectNumber', 'CellNumber',
-                                                         'Size_X', 'Size_Y', 'Centroid_X', 'Centroid_Y', 'Cell_Size',
-                                                         'Boundary_Cell', 'Activated'])
-        image_dataframe.to_csv(os.path.join(output_dir, 'images.csv'))
-        cell_dataframe.to_csv(os.path.join(output_dir, 'cells.csv'))
-        return
-
     def preprocess(self, img, normalize=True):
         if isinstance(img, str):
             img = skimage.io.imread(img)
@@ -483,7 +467,7 @@ class CellClassifier(object):
 
 class Metadata(object):
     def __init__(self):
-        self.md = pd.DataFrame()
+        self.df = pd.DataFrame()
 
     def add_row(self, seg_meta, class_meta, expts=None):
         segment_img = seg_meta['source_image_path']
@@ -509,7 +493,11 @@ class Metadata(object):
             for k, v in expts.items():
                 metadata[k] = metadata['well'].apply(v)
         metadata = metadata.set_index('image_id')
-        self.md = self.md.append(metadata)
+        self.df = self.df.append(metadata)
+
+    def write(self, ofile):
+        self.df.to_csv(ofile)
+        logger.info(f"Wrote metadata {str(ofile)}")
 
 
 if __name__ == "__main__":
@@ -654,7 +642,7 @@ if __name__ == "__main__":
                 results = mon.run(sfile, cfiles[i])
                 # with (open("/tmp/bad.pkl","wb")) as f:
                 #     pickle.dump(results,f)
-            print(mon.md.md)
+            mon.md.write(Path(args.input_dir).joinpath('metadata.csv'))
         else:
             # Should never reach here
             raise Exception(f"Invalid analysis type {args.action}")
