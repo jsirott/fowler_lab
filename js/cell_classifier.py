@@ -41,6 +41,7 @@ import matplotlib.patches as patches
 from mrcnn import my_inference
 from scipy.sparse.bsr import bsr_matrix
 import numpy.ma as ma
+import datetime as dt
 
 from decorators import pickler
 
@@ -644,7 +645,7 @@ if __name__ == "__main__":
                 results = mon.run(sfile, cfiles[i])
                 # with (open("/tmp/bad.pkl","wb")) as f:
                 #     pickle.dump(results,f)
-            mon.md.write(Path(args.input_dir).joinpath('metadata.csv'))
+            mon.md.write(Path(args.input_dir).joinpath(f"metadata.{dt.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.csv"))
         else:
             # Should never reach here
             raise Exception(f"Invalid analysis type {args.action}")
