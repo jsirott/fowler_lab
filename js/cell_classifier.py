@@ -473,7 +473,7 @@ class Metadata(object):
 
     def add_row(self, seg_meta, class_meta, expts=None):
         segment_img = seg_meta['source_image_path']
-        classify_img = class_meta[0]['source_image_path']
+        classify_img = list(class_meta.values())[0]['source_image_path']
         d = {'image_id': seg_meta['image_id'],
              'segment_dir': Path(segment_img).parent,
              'classify_dir': Path(classify_img).parent,
