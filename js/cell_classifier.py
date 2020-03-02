@@ -42,6 +42,11 @@ import numpy.ma as ma
 
 from decorators import pickler
 
+pd.set_option('max_colwidth',500)
+pd.set_option('max_columns', 100)
+pd.set_option('display.width',1000)
+
+
 
 
 
@@ -186,6 +191,7 @@ class CellClassifier(object):
             self.vizseg = VisualizeSegAndClass(self,grid=(1,2),figsize=(18,9))
         if self.config['debug']:
             logger.setLevel(logging.DEBUG)
+        self.md = Metadata()
 
 
     def finalize(self):
@@ -265,7 +271,7 @@ class CellClassifier(object):
                                                                         mode=inference_config.IMAGE_RESIZE_MODE)
         active_class_ids = [1, 1]
         meta = {
-            'image_id' : random.randint(0, 1<<31),
+            'image_id' : random.getrandbits(64),
             'source_image_path': full_path,
             'source_image_shape': img.shape,
             'molded_image_shape' : molded_image.shape,
@@ -308,6 +314,7 @@ class CellClassifier(object):
         '''
         segmented = self.segment_nucleus(simg)
         rval = self.classify_image(cimg,segmented)
+        self.md.add_row(segmented['meta'], rval['meta'],expts=self.config['expts'])
         return rval
 
     def classify_image(self, img_name, segmented):
@@ -472,6 +479,29 @@ class CellClassifier(object):
             predictions = np.array([])
         return predictions
 
+class Metadata(object):
+    def __init__(self):
+        self.md = pd.DataFrame(columns = ('image_id','segment_dir','classify_dir','segment_file','classify_file') )
+        self.id = 0
+
+    def add_row(self, seg_meta, class_meta, expts=None):
+        segment_img = seg_meta['source_image_path']
+        classify_img = class_meta[0]['source_image_path']
+        metadata = pd.DataFrame(
+            data={'image_id': self.id,
+                  'segment_dir': [Path(segment_img).parent],
+                  'classify_dir': [Path(classify_img).parent],
+                  'segment_file': [Path(segment_img).name],
+                  'classify_file': [Path(classify_img).name],
+                  })
+        metadata = metadata.join(
+            metadata['segment_file'].str.extract(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
+        if expts:
+            for k, v in expts.items():
+                metadata[k] = metadata['well'].apply(v)
+        metadata = metadata.set_index('image_id')
+        self.md = self.md.append(metadata)
+
 
 if __name__ == "__main__":
     def validate_input(val):
@@ -540,7 +570,14 @@ if __name__ == "__main__":
         'visualize_classifications' : args.visualize_classifications,
         'binning': (1,1),
         'debug': args.debug,
-        'tf_gpu_fraction': args.tf_gpu_fraction
+        'tf_gpu_fraction': args.tf_gpu_fraction,
+        'expts': {
+            'Treatment': lambda
+                x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
+                y in x for y in ['D04', 'D05', 'D06']) else 'None',
+            'Variant': lambda
+                x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L'
+        }
     }
     logger.info("Configuration:")
     logger.info(pprint.pformat(config))
@@ -608,6 +645,7 @@ if __name__ == "__main__":
                 results = mon.run(sfile, cfiles[i])
                 # with (open("/tmp/bad.pkl","wb")) as f:
                 #     pickle.dump(results,f)
+            print(mon.md.md)
         else:
             # Should never reach here
             raise Exception(f"Invalid analysis type {args.action}")
