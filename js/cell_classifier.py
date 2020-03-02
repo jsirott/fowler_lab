@@ -6,6 +6,8 @@ from skimage import img_as_float
 sys.path.append('../DSB_2018-master')
 
 import numpy as np
+#TODO- write metadata file
+#TODO - figure out how to get class names from learner
 #TODO -- make sure that fast.ai learner was trained on image that is same as that specified by config file
 #TODO - don't die on RuntimeError from pytorch
 #TODO - Fix finalize method
@@ -45,6 +47,7 @@ from decorators import pickler
 pd.set_option('max_colwidth',500)
 pd.set_option('max_columns', 100)
 pd.set_option('display.width',1000)
+pd.set_option('max_rows',1000)
 
 
 
@@ -480,21 +483,28 @@ class CellClassifier(object):
 
 class Metadata(object):
     def __init__(self):
-        self.md = pd.DataFrame(columns = ('image_id','segment_dir','classify_dir','segment_file','classify_file') )
-        self.id = 0
+        self.md = pd.DataFrame()
 
     def add_row(self, seg_meta, class_meta, expts=None):
         segment_img = seg_meta['source_image_path']
         classify_img = class_meta[0]['source_image_path']
-        metadata = pd.DataFrame(
-            data={'image_id': self.id,
-                  'segment_dir': [Path(segment_img).parent],
-                  'classify_dir': [Path(classify_img).parent],
-                  'segment_file': [Path(segment_img).name],
-                  'classify_file': [Path(classify_img).name],
-                  })
+        d = {'image_id': seg_meta['image_id'],
+             'segment_dir': Path(segment_img).parent,
+             'classify_dir': Path(classify_img).parent,
+             'segment_file': Path(segment_img).name,
+             'classify_file': Path(classify_img).name,
+         }
+
+        rows = []
+        for id,cmeta in enumerate(class_meta.values()):
+            cell_d = {k:v for k,v in cmeta.items() if k in ('activated', 'boundary_cell', 'cell_size', 'centroid')}
+            cell_d['cell_id'] = id
+            nd = d.copy()
+            nd.update(cell_d)
+            rows.append(nd)
+        metadata = pd.DataFrame(data=rows)
         metadata = metadata.join(
-            metadata['segment_file'].str.extract(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
+            metadata['classify_file'].str.extract(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
         if expts:
             for k, v in expts.items():
                 metadata[k] = metadata['well'].apply(v)
