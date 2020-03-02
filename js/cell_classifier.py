@@ -330,7 +330,6 @@ class CellClassifier(object):
         img = skimage.io.imread(img_name)
         full_path = str(Path(img_name).absolute())
         img = self.preprocess(img,normalize=False)
-        image_id = random.randint(0, 1<<31)
         if self.viz: self.viz.visualize_image(self.normalize_image(img[...,0]), 'LMNA image (classify)')
 
         # Mold image
@@ -437,7 +436,7 @@ class CellClassifier(object):
                 zip(
                     ('image_id','source_image_path','dims','centroid','cell_size',
                      'boundary_cell', 'activated','preprocess_time','classify_time'),
-                    (image_number, img_meta['source_image_path'], cell_dim[i],
+                    (image_number, full_path, cell_dim[i],
                                        cell_centroid[i], cell_size[i], boundary_cell[i],
                                        cclass,classify_time,preprocess_time)
                 ))
