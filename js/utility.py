@@ -28,26 +28,6 @@ pd.set_option('max_colwidth',500)
 pd.set_option('max_columns', 100)
 pd.set_option('display.width',1000)
 
-def get_metadata(dir,segment_pattern,classify_pattern,expts=None,save=True):
-    if not Path(dir).is_dir():
-        raise Exception(f"{dir} is not a directory")
-    segment_images = list(Path(dir).absolute().glob(segment_pattern))
-    classify_images = list(Path(dir).absolute().glob(classify_pattern))
-    assert len(segment_images) == len(classify_images)
-    metadata = pd.DataFrame(
-        data={'image_number': list(range(1, len(segment_images) + 1)),
-              'segment_path': segment_images,
-              'classify_path': classify_images,
-              'segment_base': [p.name for p in segment_images],
-              'classify_base': [p.name for p in classify_images],
-              })
-    metadata = metadata.join(metadata['segment_base'].str.extract(r'.*?_(?P<image_metadata_well>[A-Z][0-9][0-9])_s(?P<image_metdata_site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
-    if expts:
-        for k,v in expts.items():
-            metadata[k] = metadata['image_metadata_well'].apply(v)
-    metadata = metadata.set_index('image_number')
-    if save: metadata.to_csv(Path(dir).joinpath('metadata.csv'))
-    return metadata
 
 def create_tophat(indir, outdir, segment_pattern=None, visualize=False, normalize=False):
     segment_pattern = '**/*.png' if segment_pattern is None else segment_pattern
@@ -201,8 +181,26 @@ def analyze_training_data(indir,patterns):
         axes[j].set_title(pattern)
     plt.show()
 
-
-
+def get_metadata(dir,segment_pattern,classify_pattern,expts=None,save=True):
+    if not Path(dir).is_dir():
+        raise Exception(f"{dir} is not a directory")
+    segment_images = sorted(list(Path(dir).absolute().glob(segment_pattern)))
+    classify_images = sorted(list(Path(dir).absolute().glob(classify_pattern)))
+    assert len(segment_images) == len(classify_images)
+    metadata = pd.DataFrame(
+        data={'image_id': list(range(1, len(segment_images) + 1)),
+              'segment_dir': [p.parent for p in segment_images],
+              'classify_dir': [p.parent for p in classify_images],
+              'segment_file': [p.name for p in segment_images],
+              'classify_file': [p.name for p in classify_images],
+              })
+    metadata = metadata.join(metadata['segment_file'].str.extract(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
+    if expts:
+        for k,v in expts.items():
+            metadata[k] = metadata['well'].apply(v)
+    metadata = metadata.set_index('image_id')
+    if save: metadata.to_csv(Path(dir).joinpath('metadata.csv'))
+    return metadata
 
 if __name__ == '__main__':
     root_dir = "../DSB_2018-master/"
@@ -226,20 +224,19 @@ if __name__ == '__main__':
         'debug':True,
         'tf_gpu_fraction': None
     }
-    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*w2*.TIF', '**/*w1*.TIF', '**/*tophat*.TIF')
-    #mask_images(config, '../09-13-19_LMNA_variants_tile2_bortezomib_20X', '**/*D06*w2*.TIF', '**/*D06*w1*.TIF')
     #visualize_training_data('../classifier-images/imageset_divided/train', '**/wt/*.png')
-    analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png','**/edge/*.png'))
+    #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png','**/edge/*.png'))
     #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png'))
+    # create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','../09-13-19_LMNA_variants_tile2_bortezomib_20X', segment_pattern='**/*w1.TIF', visualize=False, normalize=True)
 
-    # if False:
-    #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
-    #     create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','../09-13-19_LMNA_variants_tile2_bortezomib_20X', segment_pattern='**/*w1.TIF', visualize=False, normalize=True)
-    #
-    #     expts = {
-    #         'Treatment': lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
-    #             y in x for y in ['D04', 'D05', 'D06']) else 'None',
-    #         'Variant': lambda x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L'
-    #     }
-    #
-    #     df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=expts)
+    if True:
+        # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
+
+        expts = {
+            'Treatment': lambda x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
+                y in x for y in ['D04', 'D05', 'D06']) else 'None',
+            'Variant': lambda x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L'
+        }
+
+        df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=expts)
+        print(df)
