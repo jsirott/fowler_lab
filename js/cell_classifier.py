@@ -195,6 +195,8 @@ class CellClassifier(object):
         if self.config['debug']:
             logger.setLevel(logging.DEBUG)
         self.md = Metadata()
+        # Names of classes from fast.ai classifier. Set in _pytorch_model
+        self.classes = None
 
 
     def preprocess(self, img, normalize=True):
@@ -422,10 +424,10 @@ class CellClassifier(object):
             celldata[i] = dict(
                 zip(
                     ('image_id','source_image_path','dims','centroid','cell_size',
-                     'boundary_cell', 'activated','preprocess_time','classify_time'),
+                     'boundary_cell', 'activated','cell_class','preprocess_time','classify_time'),
                     (image_number, full_path, cell_dim[i],
                                        cell_centroid[i], cell_size[i], boundary_cell[i],
-                                       cclass,classify_time,preprocess_time)
+                                       cclass,self.classes[cclass-1],classify_time,preprocess_time)
                 ))
         output_mask = output_mask[padding[0][0]:nshape[0] - padding[0][1], padding[1][0]:nshape[1] - padding[1][1]]
         if not output_mask.flags.c_contiguous:
@@ -444,6 +446,7 @@ class CellClassifier(object):
         from fastai.torch_core import tensor
         from fastai.vision.data import normalize
         learn = load_learner(config['classification_model_path'], config['classification_model_file'])
+        self.classes = learn.data.classes
         logger.debug(f"PyTorch model loaded")
         imagenet_mean = tensor([0.485, 0.456, 0.406])
         imagenet_std = tensor([0.229, 0.224, 0.225])
@@ -458,7 +461,6 @@ class CellClassifier(object):
                                      imagenet_mean,
                                      imagenet_std).cuda(),
                                         tensor(range(n_cells))))
-                #predict = np.argmax(results, axis=1).numpy() + 1
                 predictions.append(results)
             predictions = np.concatenate(predictions)
         else:
@@ -481,7 +483,7 @@ class Metadata(object):
 
         rows = []
         for id,cmeta in enumerate(class_meta.values()):
-            cell_d = {k:v for k,v in cmeta.items() if k in ('activated', 'boundary_cell', 'cell_size', 'centroid')}
+            cell_d = {k:v for k,v in cmeta.items() if k in ('activated', 'boundary_cell', 'cell_size', 'centroid','cell_class')}
             cell_d['cell_id'] = id
             nd = d.copy()
             nd.update(cell_d)
