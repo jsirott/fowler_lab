@@ -181,6 +181,10 @@ def analyze_training_data(indir,patterns):
         axes[j].set_title(pattern)
     plt.show()
 
+def plot_trained(fname):
+    df = pd.read_csv(fname, dtype={'image_id':np.int64})
+    print(df)
+
 
 if __name__ == '__main__':
     root_dir = "../DSB_2018-master/"
@@ -210,14 +214,15 @@ if __name__ == '__main__':
         }
 
     }
+    plot_trained('../09-13-19_LMNA_variants_tile2_bortezomib_20X/metadata.2020-03-02T16:31:20.csv')
     #visualize_training_data('../classifier-images/imageset_divided/train', '**/wt/*.png')
     #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png','**/edge/*.png'))
     #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png'))
     # create_tophat('../09-13-19_LMNA_variants_tile2_bortezomib_20X','../09-13-19_LMNA_variants_tile2_bortezomib_20X', segment_pattern='**/*w1.TIF', visualize=False, normalize=True)
 
-    if True:
-        # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
-
-
-        df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=config['expts'])
-        print(df)
+    # if True:
+    #     # w1 is LMNA for 09-13-19_LMNA_variants_tile2_bortezomib_20X , usually w2. Sigh.
+    #
+    #
+    #     df = get_metadata('../09-13-19_LMNA_variants_tile2_bortezomib_20X',segment_pattern='**/*w2.TIF', classify_pattern='**/*w1.TIF', expts=config['expts'])
+    #     print(df)

@@ -246,7 +246,6 @@ class CellClassifier(object):
         img = self.preprocess(img)
         if self.viz: self.viz.visualize_image(img, 'Dendra2 image (segment)')
         if self.vizseg: self.vizseg.visualize_image(img, 'Dendra2 image (segment)')
-        image_id = random.randint(0, 1<<31)
 
 
 
@@ -259,9 +258,10 @@ class CellClassifier(object):
                                                                         min_scale=inference_config.IMAGE_MIN_SCALE,
                                                                         max_dim=inference_config.IMAGE_MAX_DIM,
                                                                         mode=inference_config.IMAGE_RESIZE_MODE)
+        image_id = random.getrandbits(64)
         active_class_ids = [1, 1]
         meta = {
-            'image_id' : random.getrandbits(64),
+            'image_id' : image_id,
             'source_image_path': full_path,
             'source_image_shape': img.shape,
             'molded_image_shape' : molded_image.shape,
@@ -470,11 +470,24 @@ class CellClassifier(object):
 
 class Metadata(object):
     def __init__(self):
-        self.df = pd.DataFrame()
+        self.dict = {'image_id': [],
+             'segment_dir': [],
+             'classify_dir': [],
+             'segment_file': [],
+             'classify_file': [],
+             'activated': [],
+             'boundary_cell' : [],
+             'cell_size' : [],
+             'centroid' : [],
+             'cell_class' : [],
+             'well': [],
+             'site' : []
+         }
 
     def add_row(self, seg_meta, class_meta, expts=None):
         segment_img = seg_meta['source_image_path']
         classify_img = list(class_meta.values())[0]['source_image_path']
+
         d = {'image_id': seg_meta['image_id'],
              'segment_dir': Path(segment_img).parent,
              'classify_dir': Path(classify_img).parent,
@@ -482,24 +495,24 @@ class Metadata(object):
              'classify_file': Path(classify_img).name,
          }
 
-        rows = []
+        pat = re.compile(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w')
         for id,cmeta in enumerate(class_meta.values()):
             cell_d = {k:v for k,v in cmeta.items() if k in ('activated', 'boundary_cell', 'cell_size', 'centroid','cell_class')}
-            cell_d['cell_id'] = id
-            nd = d.copy()
-            nd.update(cell_d)
-            rows.append(nd)
-        metadata = pd.DataFrame(data=rows)
-        metadata = metadata.join(
-            metadata['classify_file'].str.extract(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w'))
-        if expts:
-            for k, v in expts.items():
-                metadata[k] = metadata['well'].apply(v)
-        metadata = metadata.set_index('image_id')
-        self.df = self.df.append(metadata)
+            for k, v in d.items():
+                self.dict[k].append(v)
+            for k,v in cell_d.items():
+                self.dict[k].append(v)
+            m = pat.search(self.dict['classify_file'][-1])
+            for k,v in m.groupdict().items():
+                self.dict[k].append(v)
+            if expts:
+                for k,v in expts.items():
+                    self.dict[k] = v(self.dict['well'][-1])
 
     def write(self, ofile):
-        self.df.to_csv(ofile)
+        df = pd.DataFrame.from_dict(self.dict)
+        df = df.set_index('image_id')
+        df.to_csv(ofile)
         logger.info(f"Wrote metadata {str(ofile)}")
 
 
