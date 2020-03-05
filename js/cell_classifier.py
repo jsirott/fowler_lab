@@ -6,8 +6,6 @@ from skimage import img_as_float
 sys.path.append('../DSB_2018-master')
 
 import numpy as np
-#TODO- write metadata file
-#TODO - figure out how to get class names from learner
 #TODO -- make sure that fast.ai learner was trained on image that is same as that specified by config file
 #TODO - don't die on RuntimeError from pytorch
 #TODO - Fix finalize method
@@ -420,15 +418,19 @@ class CellClassifier(object):
         for j,i in pred_to_index.items():
             bbox_slice = (slice(*cell_bb[i,[0,2]]), slice(*cell_bb[i,[1,3]]))
             cclass = np.argmax(predictions[j]) + 1
+            p = np.max(predictions[j])
             seg_mask = results[0]['masks'][i][bbox_slice] * cclass
             output_mask[bbox_slice] = np.bitwise_or(output_mask[bbox_slice],seg_mask)
             celldata[i] = dict(
                 zip(
                     ('image_id','source_image_path','dims','centroid','cell_size',
-                     'boundary_cell', 'activated','cell_class','preprocess_time','classify_time'),
+                     'boundary_cell', 'activated','cell_class','p_class','classify_preprocess_time','classify_time',
+                     'segment_preprocess_time', 'segment_time'),
                     (image_number, full_path, cell_dim[i],
                                        cell_centroid[i], cell_size[i], boundary_cell[i],
-                                       cclass,self.classes[cclass-1],classify_time,preprocess_time)
+                                       cclass,self.classes[cclass-1],p,classify_time,preprocess_time,
+                                       img_meta['segment_time'],img_meta['preprocess_time']
+                     )
                 ))
         output_mask = output_mask[padding[0][0]:nshape[0] - padding[0][1], padding[1][0]:nshape[1] - padding[1][1]]
         if not output_mask.flags.c_contiguous:
@@ -494,20 +496,26 @@ class Metadata(object):
              'segment_file': Path(segment_img).name,
              'classify_file': Path(classify_img).name,
          }
-
         pat = re.compile(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w')
+        m = pat.search(d['classify_file'])
+
         for id,cmeta in enumerate(class_meta.values()):
-            cell_d = {k:v for k,v in cmeta.items() if k in ('activated', 'boundary_cell', 'cell_size', 'centroid','cell_class')}
+            keys = ('p_class','classify_preprocess_time','classify_time','activated', 'boundary_cell',
+                    'cell_size', 'centroid','cell_class','segment_preprocess_time', 'segment_time')
+            cell_d = {k:v for k,v in cmeta.items() if k in keys}
             for k, v in d.items():
-                self.dict[k].append(v)
+                l = self.dict.setdefault(k, [])
+                l.append(v)
             for k,v in cell_d.items():
-                self.dict[k].append(v)
-            m = pat.search(self.dict['classify_file'][-1])
+                l = self.dict.setdefault(k, [])
+                l.append(v)
             for k,v in m.groupdict().items():
-                self.dict[k].append(v)
+                l = self.dict.setdefault(k, [])
+                l.append(v)
             if expts:
                 for k,v in expts.items():
-                    self.dict[k] = v(self.dict['well'][-1])
+                    l = self.dict.setdefault(k,[])
+                    l.append(v(self.dict['well'][-1]))
 
     def write(self, ofile):
         df = pd.DataFrame.from_dict(self.dict)
