@@ -183,14 +183,14 @@ def analyze_training_data(indir,patterns):
     plt.show()
 
 def plot_trained(fname):
-    df = pd.read_csv(fname, dtype={'image_id':np.int64})
-    df_agg = df.groupby(['variant', 'treatment'], as_index=False)['cell_class'].agg(
-        lambda x: sum(x == 'puncta') / len(x))
+    df_p = pd.read_csv(fname, dtype={'image_id':np.int64})
+    df_agg = df_p.groupby(['variant', 'treatment'], as_index=False)['cell_class'].agg(
+        lambda x: sum(x == 'puncta') / (len(x) - sum(x=='discard')))
     print(df_agg)
     fig, axis = plt.subplots()
     fig.set_size_inches(9, 6)
     ax = sns.barplot(x='variant', y='cell_class', hue='treatment', data=df_agg, ci=None)
-    ax.set_title('Library Activation')
+    ax.set_title(f'Library Activation')
     ax.set_xlabel('Treatment')
     ax.set_ylabel('Percentage of puncta cells')
     plt.show()
