@@ -19,6 +19,7 @@ import pprint
 from mrcnn import utils
 from skimage.filters import threshold_otsu
 from copy import copy
+import seaborn as sns
 
 
 logging.basicConfig(level=logging.INFO)
@@ -183,7 +184,16 @@ def analyze_training_data(indir,patterns):
 
 def plot_trained(fname):
     df = pd.read_csv(fname, dtype={'image_id':np.int64})
-    print(df)
+    df_agg = df.groupby(['variant', 'treatment'], as_index=False)['cell_class'].agg(
+        lambda x: sum(x == 'puncta') / len(x))
+    print(df_agg)
+    fig, axis = plt.subplots()
+    fig.set_size_inches(9, 6)
+    ax = sns.barplot(x='variant', y='cell_class', hue='treatment', data=df_agg, ci=None)
+    ax.set_title('Library Activation')
+    ax.set_xlabel('Treatment')
+    ax.set_ylabel('Percentage of puncta cells')
+    plt.show()
 
 
 if __name__ == '__main__':
@@ -214,7 +224,7 @@ if __name__ == '__main__':
         }
 
     }
-    plot_trained('../09-13-19_LMNA_variants_tile2_bortezomib_20X/metadata.2020-03-02T16:31:20.csv')
+    plot_trained('./test/metadata.csv')
     #visualize_training_data('../classifier-images/imageset_divided/train', '**/wt/*.png')
     #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png','**/edge/*.png'))
     #analyze_training_data('../classifier-images/imageset_divided/train', ('**/wt/*.png','**/puncta/*.png','**/noise/*.png'))

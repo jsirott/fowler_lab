@@ -593,10 +593,10 @@ if __name__ == "__main__":
         'debug': args.debug,
         'tf_gpu_fraction': args.tf_gpu_fraction,
         'expts': {
-            'Treatment': lambda
+            'treatment': lambda
                 x: 'Bortezomib' if 'B' in x else 'None' if 'A' in x else 'Unknown' if 'C' in x else 'Bortezomib' if any(
                 y in x for y in ['D04', 'D05', 'D06']) else 'None',
-            'Variant': lambda
+            'variant': lambda
                 x: 'Library' if 'D' in x else 'N195K' if '01' in x else 'E145K' if '02' in x else 'WT' if '03' in x else 'E358K' if '04' in x else 'R386K' if '05' in x else 'R482L'
         }
     }
