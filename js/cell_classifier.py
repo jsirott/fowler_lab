@@ -302,7 +302,7 @@ class CellClassifier(object):
         '''
         segmented = self.segment_nucleus(simg)
         rval = self.classify_image(cimg,segmented)
-        self.md.add_row(segmented['meta'], rval['meta'],expts=self.config['expts'])
+        self.md.add_row(segmented['meta'], rval['meta'],expts=self.config.get('expts'))
         return rval
 
     def classify_image(self, img_name, segmented):
@@ -315,6 +315,9 @@ class CellClassifier(object):
                             classification algorithm
         '''
         t0 = TimeIt()
+        # Make sure we're using a Path object
+        img_name = Path(img_name)
+
         img = skimage.io.imread(img_name)
         full_path = str(Path(img_name).absolute())
         img = self.preprocess(img,normalize=False)
@@ -443,6 +446,7 @@ class CellClassifier(object):
         # Perform classifier predictions on gpu
         # Initialize pytorch model
         n_cells = len(list_of_crops)
+        config = self.config
         logger.debug(f"Loading PyTorch classification model from {config['classification_model_path']}")
         from fastai.basic_data import DatasetType
         from fastai.basic_train import load_learner
@@ -496,8 +500,10 @@ class Metadata(object):
              'segment_file': Path(segment_img).name,
              'classify_file': Path(classify_img).name,
          }
-        pat = re.compile(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w')
-        m = pat.search(d['classify_file'])
+        m = pat = None
+        if expts:
+            pat = re.compile(r'.*?_(?P<well>[A-Z][0-9][0-9])_s(?P<site>[0-9]?[0-9]?[0-9]?[0-9])_w')
+            m = pat.search(d['classify_file'])
 
         for id,cmeta in enumerate(class_meta.values()):
             keys = ('p_class','classify_preprocess_time','classify_time','activated', 'boundary_cell',
@@ -509,9 +515,10 @@ class Metadata(object):
             for k,v in cell_d.items():
                 l = self.dict.setdefault(k, [])
                 l.append(v)
-            for k,v in m.groupdict().items():
-                l = self.dict.setdefault(k, [])
-                l.append(v)
+            if m:
+                for k,v in m.groupdict().items():
+                    l = self.dict.setdefault(k, [])
+                    l.append(v)
             if expts:
                 for k,v in expts.items():
                     l = self.dict.setdefault(k,[])
@@ -576,10 +583,10 @@ if __name__ == "__main__":
         'root_dir' : root_dir,
         'model_file': model_file,
         'model_path':os.path.join(root_dir, model_file),
-        #'classification_model_path':'./models/imageset_divided/2x2_binning', #use hyeon-jin's resnet34 model trained on 2x2 binned crops with multiple classes,
-        #'classification_model_file':'export.pkl',
-        'classification_model_path' : '../classifier-images/imageset_3class',
-        'classification_model_file':'model_64.20200229_1659.pkl',
+        'classification_model_path':'./models/imageset_divided/2x2_binning', #use hyeon-jin's resnet34 model trained on 2x2 binned crops with multiple classes,
+        'classification_model_file':'export.pkl',
+        #'classification_model_path' : '../classifier-images/imageset_3class',
+        #'classification_model_file':'model_64.20200229_1659.pkl',
         'save_every':500,
         'cell_size_minimum':0,
         'batch_size':512,
