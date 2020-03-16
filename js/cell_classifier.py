@@ -289,6 +289,9 @@ class CellClassifier(object):
         if self.vizseg: self.vizseg.visualize_cell_boundaries(results, molded_image, title='Segmented cell boundaries')
         return {'model_data':results, 'molded_image':molded_image, 'meta':meta}
 
+    def write_metadata(self, output_dir):
+        self.md.write(Path(output_dir).joinpath(f"metadata.{dt.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.csv"))
+
 
     @pickler
     def run(self, simg, cimg):
@@ -519,10 +522,16 @@ class Metadata(object):
                 for k,v in m.groupdict().items():
                     l = self.dict.setdefault(k, [])
                     l.append(v)
-            if expts:
+            if expts and m:
                 for k,v in expts.items():
                     l = self.dict.setdefault(k,[])
                     l.append(v(self.dict['well'][-1]))
+        # Eliminate empty columns
+        ndict = self.dict.copy()
+        for k,v in self.dict.items():
+            if len(self.dict[k]) == 0:
+                del ndict[k]
+        self.dict = ndict
 
     def write(self, ofile):
         df = pd.DataFrame.from_dict(self.dict)
@@ -596,7 +605,7 @@ if __name__ == "__main__":
         'visualize':args.visualize,
         'visualize_segs' : args.visualize_segs,
         'visualize_classifications' : args.visualize_classifications,
-        'binning': (1,1),
+        'binning': (2,2),
         'debug': args.debug,
         'tf_gpu_fraction': args.tf_gpu_fraction,
         'expts': {
@@ -673,7 +682,7 @@ if __name__ == "__main__":
                 results = mon.run(sfile, cfiles[i])
                 # with (open("/tmp/bad.pkl","wb")) as f:
                 #     pickle.dump(results,f)
-            mon.md.write(Path(args.input_dir).joinpath(f"metadata.{dt.datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}.csv"))
+            mon.write_metadata(args.input_dir)
         else:
             # Should never reach here
             raise Exception(f"Invalid analysis type {args.action}")

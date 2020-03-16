@@ -15,4 +15,7 @@ class CellClassifierClient:
         kwargs['do_pickle'] = True
         return  pickle.loads(self.conn.root.run(*args, **kwargs))
 
+    def write_metadata(self, *args, **kwargs):
+        self.conn.root.write_metadata(*args, **kwargs)
+
 

@@ -28,6 +28,10 @@ class RpycServer(rpyc.Service):
     def exposed_run(self, *args, **kwargs):
         return self.analyzer.run(*args, **kwargs)
 
+    def exposed_write_metadata(self, *args, **kwargs):
+        return self.analyzer.write_metadata(*args, **kwargs)
+
+
 class ImageAnalysisServer:
     def __init__(self,config,hostname='localhost',port=10000):
         service = classpartial(RpycServer, config)
@@ -90,6 +94,7 @@ if __name__ == '__main__':
             logger.info("Running non remote analysis")
 
             analysis = client.run('test/test_segment.tif', 'test/test_classify.tif')
+            client.write_metadata('test')
             # with open('test/test.pkl',"wb") as f:
             #     pickle.dump(analysis,f)
             p.terminate()
